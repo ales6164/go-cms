@@ -3,35 +3,37 @@ package api
 import "google.golang.org/appengine/log"
 
 type Rules map[Scope]Role
-type Role int
+type Role string
 type Scope string
 
-var (
-	SUBSCRIBER Role = 1 // Default user role
-	EDITOR     Role = 2
-	ADMIN      Role = 3
+var Ranks = map[Role]int{
+	Guest:      0,
+	Subscriber: 1,
+	Editor:     2,
+	Admin:      3,
+}
 
-	WRITE  Scope = "write"
-	READ   Scope = "read"
-	ADD    Scope = "add"
-	EDIT   Scope = "edit"
-	DELETE Scope = "delete"
+var scopes = []Scope{Read, Write, Add, Edit, Delete}
+
+var (
+	Guest      Role = "guest"
+	Subscriber Role = "subscriber" // Default user role
+	Editor     Role = "editor"
+	Admin      Role = "admin"
+
+	Read   Scope = "read"
+	Write  Scope = "write"
+	Add    Scope = "add"
+	Edit   Scope = "edit"
+	Delete Scope = "delete"
 )
 
 func (c Context) HasScope(e *Entity, scope Scope) bool {
-	log.Debugf(c.Context, "HasScope: Entity %s, Scope %v", e.Name, scope)
+	//log.Debugf(c.Context, "HasScope: Entity %s, Scope %v", e.Name, scope)
 
 	if role, ok := e.Rules[scope]; ok {
-		return c.Role >= role
+		return c.Rank >= Ranks[role]
 	}
 
 	return false
-}
-
-func (c Context) WithScopes(scopes ...Scope) Context {
-	c.scopes = map[Scope]bool{}
-	for _, scope := range scopes {
-		c.scopes[scope] = true
-	}
-	return c
 }

@@ -2,7 +2,6 @@ package api
 
 import (
 	"errors"
-	"fmt"
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/datastore"
 )
@@ -19,7 +18,7 @@ type EntityQueryFilter struct {
 	Value    interface{} `json:"value"`
 }
 
-func (e *Entity) Query(ctx Context, sort string, limit int, filters ...EntityQueryFilter) ([]*EntityDataHolder, error) {
+/*func (e *Entity) Query(ctx Context, sort string, limit int, filters ...EntityQueryFilter) ([]*EntityDataHolder, error) {
 	var hs []*EntityDataHolder
 
 	if ctx.HasScope(e, ScopeRead) {
@@ -68,9 +67,9 @@ func (e *Entity) Query(ctx Context, sort string, limit int, filters ...EntityQue
 	}
 
 	return hs, ErrNotAuthorized
-}
+}*/
 
-func (e *Entity) GetValues(ctx Context, key *datastore.Key, fieldNames ...string) (*EntityDataHolder, error) {
+/*func (e *Entity) GetValues(ctx Context, key *datastore.Key, fieldNames ...string) (*EntityDataHolder, error) {
 	var h = e.New(ctx)
 	h.isNew = false
 	if ctx.HasScope(e, ScopeRead) {
@@ -97,12 +96,15 @@ func (e *Entity) GetValues(ctx Context, key *datastore.Key, fieldNames ...string
 		return h, nil
 	}
 	return h, ErrNotAuthorized
-}
+}*/
 
-func (e *Entity) Get(ctx Context, key *datastore.Key) (*EntityDataHolder, error) {
-	var h = e.New(ctx)
+func (e *Entity) Get(ctx Context, key *datastore.Key) (*DataHolder, error) {
+	h, err := e.New(ctx)
+	if err != nil {
+		return h, err
+	}
 	h.isNew = false
-	if ctx.HasScope(e, ScopeRead) {
+	if ctx.HasScope(e, Read) {
 		err := datastore.Get(ctx.Context, key, h)
 		if err != nil {
 			return h, err
@@ -110,7 +112,7 @@ func (e *Entity) Get(ctx Context, key *datastore.Key) (*EntityDataHolder, error)
 		encoded := key.Encode()
 		h.id = encoded
 		if e.Private {
-			if !ctx.UserMatches(h.Get(ctx, "_createdBy")) {
+			if !ctx.UserMatches(h.Get(ctx, CreatedBy.Name)) {
 				return nil, ErrNotAuthorized
 			}
 		}
@@ -121,10 +123,9 @@ func (e *Entity) Get(ctx Context, key *datastore.Key) (*EntityDataHolder, error)
 	}
 	return h, ErrNotAuthorized
 }
-
-func (e *Entity) Add(ctx Context, key *datastore.Key, h *EntityDataHolder) (*datastore.Key, error) {
+func (e *Entity) Add(ctx Context, key *datastore.Key, h *DataHolder) (*datastore.Key, error) {
 	var err error
-	if ctx.HasScope(e, ScopeAdd) {
+	if ctx.HasScope(e, Add) {
 		if !key.Incomplete() {
 			err = datastore.RunInTransaction(ctx.Context, func(tc context.Context) error {
 				var tempEnt datastore.PropertyList
@@ -150,7 +151,7 @@ func (e *Entity) Add(ctx Context, key *datastore.Key, h *EntityDataHolder) (*dat
 					}
 					return err
 				} else {
-					return EntityAlreadyExists.Params(key.Kind())
+					return errors.New("entity already exists")
 				}
 				return nil
 			}, nil)
@@ -177,8 +178,8 @@ func (e *Entity) Add(ctx Context, key *datastore.Key, h *EntityDataHolder) (*dat
 	return key, ErrNotAuthorized
 }
 
-func (e *Entity) Put(ctx Context, key *datastore.Key, h *EntityDataHolder) (*datastore.Key, error) {
-	if ctx.HasScope(e, ScopeWrite) {
+func (e *Entity) Put(ctx Context, key *datastore.Key, h *DataHolder) (*datastore.Key, error) {
+	if ctx.HasScope(e, Write) {
 		if e.OnBeforeWrite != nil {
 			if err := e.OnBeforeWrite(ctx, h); err != nil {
 				return key, err
@@ -191,7 +192,7 @@ func (e *Entity) Put(ctx Context, key *datastore.Key, h *EntityDataHolder) (*dat
 		encoded := key.Encode()
 		h.id = encoded
 		if e.Private {
-			if !ctx.UserMatches(h.Get(ctx, "_createdBy")) {
+			if !ctx.UserMatches(h.Get(ctx, CreatedBy.Name)) {
 				return nil, ErrNotAuthorized
 			}
 		}
@@ -206,11 +207,11 @@ func (e *Entity) Put(ctx Context, key *datastore.Key, h *EntityDataHolder) (*dat
 
 // Checks if the key is incomplete; if not it tries retrieving the entity and then copying values to the existing entity
 // otherwise it adds a new entity
-func (e *Entity) Post(ctx Context, key *datastore.Key, h *EntityDataHolder) (*datastore.Key, error) {
+func (e *Entity) Post(ctx Context, key *datastore.Key, h *DataHolder) (*datastore.Key, error) {
 	var err error
 
 	if key.Incomplete() {
-		if ctx.HasScope(e, ScopeAdd) {
+		if ctx.HasScope(e, Add) {
 			// add entity
 			if e.OnBeforeWrite != nil {
 				if err = e.OnBeforeWrite(ctx, h); err != nil {
@@ -224,7 +225,7 @@ func (e *Entity) Post(ctx Context, key *datastore.Key, h *EntityDataHolder) (*da
 			encoded := key.Encode()
 			h.id = encoded
 			if e.Private {
-				if !ctx.UserMatches(h.Get(ctx, "_createdBy")) {
+				if !ctx.UserMatches(h.Get(ctx, CreatedBy.Name)) {
 					return nil, ErrNotAuthorized
 				}
 			}
@@ -234,7 +235,7 @@ func (e *Entity) Post(ctx Context, key *datastore.Key, h *EntityDataHolder) (*da
 			}
 			return key, err
 		}
-	} else if ctx.HasScope(e, ScopeEdit) || ctx.HasScope(e, ScopeWrite) {
+	} else if ctx.HasScope(e, Edit) {
 		// edit or rewrite entity
 		err = datastore.RunInTransaction(ctx.Context, func(tc context.Context) error {
 
@@ -242,7 +243,7 @@ func (e *Entity) Post(ctx Context, key *datastore.Key, h *EntityDataHolder) (*da
 			err := datastore.Get(tc, key, h)
 			if err == nil {
 				if e.Private {
-					if !ctx.UserMatches(h.Get(ctx, "_createdBy")) {
+					if !ctx.UserMatches(h.Get(ctx, CreatedBy.Name)) {
 						return ErrNotAuthorized
 					}
 				}
@@ -295,9 +296,9 @@ func (e *Entity) Post(ctx Context, key *datastore.Key, h *EntityDataHolder) (*da
 }
 
 // currently it only check if entity exists and rewrites it
-func (e *Entity) Edit(ctx Context, key *datastore.Key, h *EntityDataHolder) (*datastore.Key, error) {
+func (e *Entity) Edit(ctx Context, key *datastore.Key, h *DataHolder) (*datastore.Key, error) {
 	var err error
-	if ctx.HasScope(e, ScopeEdit) {
+	if ctx.HasScope(e, Edit) {
 		if !key.Incomplete() {
 			err = datastore.RunInTransaction(ctx.Context, func(tc context.Context) error {
 
@@ -308,7 +309,7 @@ func (e *Entity) Edit(ctx Context, key *datastore.Key, h *EntityDataHolder) (*da
 					return err
 				}
 				if e.Private {
-					if !ctx.UserMatches(h.Get(ctx, "_createdBy")) {
+					if !ctx.UserMatches(h.Get(ctx, CreatedBy.Name)) {
 						return ErrNotAuthorized
 					}
 				}

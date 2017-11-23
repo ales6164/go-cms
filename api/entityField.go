@@ -54,6 +54,7 @@ const (
 )
 
 type ValueContext struct {
+	Scope Scope
 	Trust ValueTrust
 	Field *Field
 }

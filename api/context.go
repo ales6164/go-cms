@@ -19,6 +19,7 @@ type Context struct {
 
 	User string // encoded User key
 	Role Role
+	Rank int
 
 	IsAuthenticated bool
 	Token           Token
@@ -38,6 +39,7 @@ func NewContext(r *http.Request) Context {
 		Context:         appengine.NewContext(r),
 		IsAuthenticated: isAuthenticated,
 		Role:            userRole,
+		Rank:            Ranks[userRole],
 		User:            userKey,
 		Token:           renewedToken,
 		err:             err,
@@ -68,6 +70,7 @@ func (c Context) UserMatches(userKey interface{}) bool {
 
 func getUser(r *http.Request) (bool, Role, string, Token, error) {
 	var isAuthenticated bool
+	var userRole Role = "guest"
 	var userKey string
 	var renewedToken Token
 	var err error
@@ -86,7 +89,7 @@ func getUser(r *http.Request) (bool, Role, string, Token, error) {
 						return true, Role(userRole), username, renewedToken, err
 					}
 				}
-				return isAuthenticated, 0, userKey, renewedToken, ErrIllegalAction
+				return isAuthenticated, userRole, userKey, renewedToken, ErrIllegalAction
 			} else if exp, ok := claims["exp"].(float64); ok {
 				// check if it's less than a week old
 				if time.Now().Unix()-int64(exp) < time.Now().Add(time.Hour * 24 * 7).Unix() {
@@ -104,5 +107,5 @@ func getUser(r *http.Request) (bool, Role, string, Token, error) {
 		}
 	}
 
-	return isAuthenticated, 0, userKey, renewedToken, err
+	return isAuthenticated, userRole, userKey, renewedToken, err
 }

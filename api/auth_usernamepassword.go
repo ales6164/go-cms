@@ -6,238 +6,109 @@ import (
 	"net/http"
 )
 
-var userEntity *Entity
-var ProfileEntity *Entity
-var lostPasswordRequest *Entity
-
-func init() {
-	lostPasswordRequest = &Entity{
-		Name: "lostPasswordRequest",
-		Fields: []*Field{
-			{
-				Name:       "email",
-				NoEdits:    true,
-				IsRequired: true,
-				Validator: func(value interface{}) bool {
-					return govalidator.IsEmail(value.(string))
-				},
-			},
-			{
-				Name:         "isUnused",
-				DefaultValue: true,
-			},
-		},
-	}
-	userEntity = &Entity{
-		Name: "user",
-		Fields: []*Field{
-			{
-				Name:       "email",
-				NoEdits:    true,
-				IsRequired: true,
-				Validator: func(value interface{}) bool {
-					return govalidator.IsEmail(value.(string))
-				},
-			},
-			{
-				Name:         "role",
-				DefaultValue: string(SubscriberRole),
-			},
-			{
-				Name:       "password",
-				IsRequired: true,
-				NoIndex:    true,
-				Json:       NoJsonOutput,
-				Validator: func(value interface{}) bool {
-					return govalidator.IsByteLength(value.(string), 6, 128)
-				},
-				TransformFunc: FuncHashTransform,
-			},
-		},
-	}
-	ProfileEntity = &Entity{
-		Name: "profile",
-		Fields: []*Field{
-			{
-				Name:       "firstName",
-				IsRequired: true,
-				Validator: func(value interface{}) bool {
-					return govalidator.IsByteLength(value.(string), 1, 64)
-				},
-			},
-			{
-				Name:       "lastName",
-				IsRequired: true,
-				Validator: func(value interface{}) bool {
-					return govalidator.IsByteLength(value.(string), 1, 64)
-				},
-			},
-			{
-				Name: "companyName",
-				Validator: func(value interface{}) bool {
-					return govalidator.IsByteLength(value.(string), 0, 64)
-				},
-			},
-			{
-				Name: "companyId",
-				Validator: func(value interface{}) bool {
-					return govalidator.IsByteLength(value.(string), 0, 8)
-				},
-			},
-			{
-				Name:       "address",
-				IsRequired: true,
-				Validator: func(value interface{}) bool {
-					return govalidator.IsByteLength(value.(string), 1, 128)
-				},
-			},
-			{
-				Name:       "city",
-				IsRequired: true,
-				Validator: func(value interface{}) bool {
-					return govalidator.IsByteLength(value.(string), 1, 128)
-				},
-			},
-			{
-				Name:       "zip",
-				IsRequired: true,
-				Validator: func(value interface{}) bool {
-					return govalidator.IsByteLength(value.(string), 1, 12) && govalidator.IsNumeric(value.(string))
-				},
-			},
-			{
-				Name: "phone",
-			},
-			{
-				Name: "email",
-				Validator: func(value interface{}) bool {
-					return govalidator.IsEmail(value.(string))
-				},
-			},
-		},
-	}
+var PasswordField = &Field{
+	Name:       "password",
+	IsRequired: true,
+	NoIndex:    true,
+	Validator: func(value interface{}) bool {
+		return govalidator.IsByteLength(value.(string), 6, 128)
+	},
+	TransformFunc: FuncHashTransform,
 }
 
-func GetUserProfileHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := NewContext(r).WithScopes(ScopeRead)
-	if !ctx.IsAuthenticated {
-		ctx.PrintError(w, ErrNotAuthenticated, http.StatusUnauthorized)
-		return
-	}
-
-	ctx, key, err := ProfileEntity.NewKey(ctx, ctx.User)
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	d, err := ProfileEntity.Get(ctx, key)
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	ctx.Print(w, d.Output(ctx))
-}
-
-func GetUserProfile(r *http.Request) (map[string]interface{}, error) {
-	ctx := NewContext(r).WithScopes(ScopeRead)
-	if !ctx.IsAuthenticated {
-		return nil, ErrNotAuthenticated
-	}
-
-	ctx, key, err := ProfileEntity.NewKey(ctx, ctx.User)
-	if err != nil {
-		return nil, err
-	}
-
-	d, err := ProfileEntity.Get(ctx, key)
-	if err != nil {
-		return nil, err
-	}
-
-	return d.Output(ctx), nil
-}
-
-func EditUserProfileHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := NewContext(r).WithScopes(ScopeEdit)
-	if ctx.err != nil {
-		ctx.PrintError(w, ctx.err, http.StatusInternalServerError)
-		return
-	}
-	if !ctx.IsAuthenticated {
-		ctx.PrintError(w, ErrNotAuthenticated, http.StatusUnauthorized)
-		return
-	}
-
-	h, err := ProfileEntity.FromForm(ctx)
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	ctx, key, err := ProfileEntity.NewKey(ctx, ctx.User)
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	key, err = ProfileEntity.Edit(ctx, key, h)
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	ctx.Print(w, h.Output(ctx))
+var User = &Entity{
+	Name:      "user",
+	Protected: true,
+	Rules: Rules{
+		Add: Guest,
+	},
+	Fields: []*Field{
+		{
+			Name: "email",
+			Rules: Rules{
+				Write: Admin,
+			},
+			IsRequired: true,
+			Validator: func(value interface{}) bool {
+				return govalidator.IsEmail(value.(string))
+			},
+		},
+		{
+			Name:    "role",
+			NoIndex: true,
+			Rules: Rules{
+				Write: Admin,
+			},
+			DefaultValue: 1,
+		},
+		PasswordField,
+		/*{
+			Name:       "firstName",
+			IsRequired: true,
+			Validator: func(value interface{}) bool {
+				return govalidator.IsByteLength(value.(string), 1, 64)
+			},
+		},
+		{
+			Name:       "lastName",
+			IsRequired: true,
+			Validator: func(value interface{}) bool {
+				return govalidator.IsByteLength(value.(string), 1, 64)
+			},
+		},
+		{
+			Name: "companyName",
+			Validator: func(value interface{}) bool {
+				return govalidator.IsByteLength(value.(string), 0, 64)
+			},
+		},
+		{
+			Name: "companyId",
+			Validator: func(value interface{}) bool {
+				return govalidator.IsByteLength(value.(string), 0, 8)
+			},
+		},
+		{
+			Name:       "address",
+			IsRequired: true,
+			Validator: func(value interface{}) bool {
+				return govalidator.IsByteLength(value.(string), 1, 128)
+			},
+		},
+		{
+			Name:       "city",
+			IsRequired: true,
+			Validator: func(value interface{}) bool {
+				return govalidator.IsByteLength(value.(string), 1, 128)
+			},
+		},
+		{
+			Name:       "zip",
+			IsRequired: true,
+			Validator: func(value interface{}) bool {
+				return govalidator.IsByteLength(value.(string), 1, 12) && govalidator.IsNumeric(value.(string))
+			},
+		},
+		{
+			Name: "phone",
+		},
+		*/
+	},
+	OnInit: func(c Context, h *DataHolder) error {
+		if c.IsAuthenticated {
+			return ErrAlreadyAuthenticated
+		}
+		return nil
+	},
 }
 
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := NewContext(r).WithScopes(ScopeRead)
-
-	if ctx.IsAuthenticated {
-		ctx.PrintError(w, ErrAlreadyAuthenticated, http.StatusInternalServerError)
-		return
-	}
-
-	do, err := userEntity.FromForm(ctx)
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	ctx, key, err := userEntity.NewKey(ctx, do.GetInput("email"))
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	d, err := userEntity.Get(ctx, key)
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
+	ctx := NewContext(r)
 
 	err = decrypt([]byte(d.Get(ctx, "password").([]uint8)), []byte(do.GetInput("password").(string)))
 	if err != nil {
 		ctx.PrintError(w, err, http.StatusInternalServerError)
 		return
-	}
-
-	ctx, profileKey, err := ProfileEntity.NewKey(ctx, d.id)
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	profileD, err := ProfileEntity.Get(ctx, profileKey)
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	var data = d.Output(ctx)
-	for name, value := range profileD.Output(ctx) {
-		data[name] = value
 	}
 
 	err = ctx.NewUserToken(d.id, Role(d.Get(ctx, "role").(string)))
@@ -264,12 +135,6 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profileData, err := ProfileEntity.FromForm(ctx)
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
-
 	ctx, key, err := userEntity.NewKey(ctx, d.Get(ctx, "email"))
 	if err != nil {
 		ctx.PrintError(w, err, http.StatusInternalServerError)
@@ -282,28 +147,10 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, profileKey, err := ProfileEntity.NewKey(ctx, d.id)
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	profileKey, err = ProfileEntity.Add(ctx, profileKey, profileData)
-	if err != nil {
-		ctx.PrintError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	var data = d.Output(ctx)
-
 	err = ctx.NewUserToken(d.id, Role(d.Get(ctx, "role").(string)))
 	if err != nil {
 		ctx.PrintError(w, err, http.StatusInternalServerError)
 		return
-	}
-
-	for name, value := range profileData.Output(ctx) {
-		data[name] = value
 	}
 
 	ctx.Print(w, data)

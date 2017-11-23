@@ -7,12 +7,15 @@ import (
 )
 
 func (e *Entity) FromForm(c Context) (*DataHolder, error) {
-	var h = e.New(c)
+	h, err := e.New(c)
+	if err != nil {
+		return h, err
+	}
 
 	// todo: fix this
 	c.r.FormValue("a")
 
-	err := c.r.ParseForm()
+	err = c.r.ParseForm()
 	if len(c.r.Form) != 0 {
 		for name, values := range c.r.Form {
 			// remove '[]' from fieldName if it's an array
@@ -51,26 +54,31 @@ func (e *Entity) FromForm(c Context) (*DataHolder, error) {
 }
 
 func (e *Entity) FromBody(c Context) (*DataHolder, error) {
-	var err error
+	h, err := e.New(c)
+	if err != nil {
+		return h, err
+	}
 
 	c = c.WithBody()
 
 	if len(c.body.body) == 0 {
-		return e.New(c), nil
+		return h, nil
 	}
 
 	var t map[string]interface{}
 	err = json.Unmarshal(c.body.body, &t)
 	if err != nil {
-		return e.New(c), err
+		return h, err
 	}
 
 	return e.FromMap(c, t)
 }
 
 func (e *Entity) FromMap(c Context, m map[string]interface{}) (*DataHolder, error) {
-	var h = e.New(c)
-	var err error
+	h, err := e.New(c)
+	if err != nil {
+		return h, err
+	}
 
 	for name, value := range m {
 		if _, ok := value.([]interface{}); ok || reflect.TypeOf(value).String() == "[]interface {}" {

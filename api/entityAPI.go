@@ -22,6 +22,18 @@ func (a *SDK) enableEntityAPI(e *Entity) {
 	enabledEntityAPIs = append(enabledEntityAPIs, e)
 }
 
+func (e *Entity) Handler() http.Handler {
+	r := mux.NewRouter()
+
+	var name = "/" + e.Name
+
+	r.HandleFunc(name + "/{encodedKey}", e.handleGet()).Methods(http.MethodGet)
+	r.HandleFunc(name + "/{encodedKey}", e.handleEdit()).Methods(http.MethodPost)
+	r.HandleFunc(name, e.handleAdd()).Methods(http.MethodPost)
+
+	return r
+}
+
 func (e *Entity) handleGetEntityInfo() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := NewContext(r).WithBody()

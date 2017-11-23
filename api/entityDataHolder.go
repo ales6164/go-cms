@@ -12,7 +12,8 @@ import (
 
 // PreparedEntity data holder
 type DataHolder struct {
-	Entity *Entity `json:"-"`
+	context Context
+	Entity  *Entity `json:"-"`
 
 	isNew             bool
 	keepExistingValue bool // turn this true when receiving old data from database; used for editing existing entity
@@ -38,12 +39,12 @@ func init() {
 	gob.Register(time.Now())
 }
 
-func (e *DataHolder) Get(ctx Context, name string) interface{} {
+func (h *DataHolder) Get(ctx Context, name string) interface{} {
 	var endValue interface{}
 
 	sep := strings.Split(name, ".")
-	if field, ok := e.Entity.fields[sep[0]]; ok {
-		var value = e.data[field]
+	if field, ok := h.Entity.fields[sep[0]]; ok {
+		var value = h.data[field]
 
 		if field.Lookup && field.Entity != nil {
 			if field.Multiple {
@@ -76,127 +77,85 @@ func (e *DataHolder) Get(ctx Context, name string) interface{} {
 	return nil
 }
 
-func (e *DataHolder) GetInput(name string) interface{} {
-	return e.input[name]
+func (h *DataHolder) GetInput(name string) interface{} {
+	return h.input[name]
 }
 
 func output(ctx Context, id string, data Data, cacheLookup bool) map[string]interface{} {
 	var output = map[string]interface{}{}
-	var multiples []string
 
 	// range over data. Value can be single value or if the field it Multiple then it's an array
 	for field, value := range data {
-		var doCacheLookup = cacheLookup && field.Lookup && field.Entity != nil
-
-		if field.Json == NoJsonOutput {
+		if field.Hidden {
 			continue
 		}
 
-		if len(field.GroupName) != 0 {
-			if _, ok := output[field.GroupName]; !ok {
-				output[field.GroupName] = map[string]interface{}{}
-			}
-
+		if cacheLookup && field.Lookup && field.Entity != nil {
 			if field.Multiple {
 				for _, v := range value.([]interface{}) {
-
-					if _, ok := output[field.GroupName].(map[string]interface{})["items"]; !ok {
-						output[field.GroupName] = map[string]interface{}{
-							"LastPropCount": 0,
-							"LastProp":      "",
-							"count":         0,
-							"items":         []map[string]interface{}{},
-						}
-						multiples = append(multiples, field.GroupName)
-					}
-
-					var groupField map[string]interface{} = output[field.GroupName].(map[string]interface{})
-
-					if groupField["LastProp"] != field.Name {
-						groupField["LastPropCount"] = 0
-						groupField["LastProp"] = field.Name
-					} else {
-						groupField["LastPropCount"] = groupField["LastPropCount"].(int) + 1
-					}
-
-					if len(groupField["items"].([]map[string]interface{}))-1 < groupField["LastPropCount"].(int) {
-						groupField["items"] = append(groupField["items"].([]map[string]interface{}), map[string]interface{}{})
-					}
-
-					if doCacheLookup {
-						v, _ = field.Entity.Lookup(ctx, v.(string))
-					}
-
-					groupField["items"].([]map[string]interface{})[groupField["LastPropCount"].(int)][field.Name] = v
-					groupField["count"] = len(groupField["items"].([]map[string]interface{}))
-
-					output[field.GroupName] = groupField
-
+					v, _ = field.Entity.Lookup(ctx, v.(string))
+					output[field.Name] = appendValue(output[field.Name], v, true)
 				}
 			} else {
-				if doCacheLookup {
-					value, _ = field.Entity.Lookup(ctx, value.(string))
-				}
-
-				output[field.GroupName].(map[string]interface{})[field.Name] = value
+				value, _ = field.Entity.Lookup(ctx, value.(string))
+				output[field.Name] = appendValue(output[field.Name], value, false)
 			}
 		} else {
-			if doCacheLookup {
-				value, _ = field.Entity.Lookup(ctx, value.(string))
-			}
-
-			output[field.Name] = value
+			output[field.Name] = appendValue(output[field.Name], value, false)
 		}
 	}
 
-	for _, multiName := range multiples {
-		delete(output[multiName].(map[string]interface{}), "LastPropCount")
-		delete(output[multiName].(map[string]interface{}), "LastProp")
-	}
-
-	output["_id"] = id
+	output["id"] = id
 
 	return output
+}
+
+func appendValue(field interface{}, value interface{}, multiple bool) interface{} {
+	if multiple {
+		if field == nil {
+			field = []interface{}{}
+		}
+		field = append(field.([]interface{}), value)
+	} else {
+		field = value
+	}
+	return field
 }
 
 func flatOutput(id string, data Data) map[string]interface{} {
 	var output = map[string]interface{}{}
 
 	for field, value := range data {
-		if field.Json == NoJsonOutput {
+		if field.Hidden {
 			continue
 		}
 
-		if len(field.GroupName) != 0 {
-			output[field.GroupName+strings.Title(field.Name)] = value
-		} else {
-			output[field.Name] = value
-		}
+		output[field.Name] = value
 	}
 
-	output["_id"] = id
+	output["id"] = id
 
 	return output
 }
 
-func (e *DataHolder) Output(ctx Context) map[string]interface{} {
-	return output(ctx, e.id, e.data, true)
+func (h *DataHolder) Output(ctx Context) map[string]interface{} {
+	return output(ctx, h.id, h.data, true)
 }
 
-func (e *DataHolder) FlatOutput() map[string]interface{} {
-	return flatOutput(e.id, e.data)
+func (h *DataHolder) FlatOutput() map[string]interface{} {
+	return flatOutput(h.id, h.data)
 }
 
-func (e *DataHolder) JSON(ctx Context) (string, error) {
-	bs, err := json.Marshal(e.Output(ctx))
+func (h *DataHolder) JSON(ctx Context) (string, error) {
+	bs, err := json.Marshal(h.Output(ctx))
 	return string(bs), err
 }
 
 // Safely appends value
-func (e *DataHolder) AppendValue(name string, value interface{}) error {
-	if field, ok := e.Entity.fields[name]; ok {
-		var c = &ValueContext{Field: field, Trust: Base}
-		return e.appendFieldValue(field, value, c)
+func (h *DataHolder) AppendValue(name string, value interface{}, scope Scope) error {
+	if field, ok := h.Entity.fields[name]; ok {
+		var c = &ValueContext{Field: field, Trust: Base, Scope: scope}
+		return h.appendFieldValue(field, value, c)
 	}
 
 	// skip
@@ -205,20 +164,20 @@ func (e *DataHolder) AppendValue(name string, value interface{}) error {
 	return nil
 }
 
-func (e *DataHolder) appendValue(name string, value interface{}, trust ValueTrust) error {
+func (e *DataHolder) appendValue(name string, value interface{}, trust ValueTrust, scope Scope) error {
 	e.input[name] = value
 
 	if field, ok := e.Entity.fields[name]; ok {
 
 		// to keep it from deleting value
 		// todo
-		if (field.Type == FileType || field.Type == ImageType) && field.IsRequired {
+		/*if (field.Type == FileType || field.Type == ImageType) && field.IsRequired {
 			if fileUrl, ok := value.(string); !ok || len(fileUrl) == 0 {
 				return nil
 			}
-		}
+		}*/
 
-		var c = &ValueContext{Field: field, Trust: trust}
+		var c = &ValueContext{Field: field, Trust: trust, Scope: scope}
 		return e.appendFieldValue(field, value, c)
 	}
 
@@ -230,10 +189,6 @@ func (e *DataHolder) appendValue(name string, value interface{}, trust ValueTrus
 
 // Safely appends value
 func (e *DataHolder) appendFieldValue(field *Field, value interface{}, vc *ValueContext) error {
-	if !e.isNew && field.NoEdits {
-		return fmt.Errorf(ErrFieldEditPermissionDenied, field.datastoreFieldName)
-	}
-
 	var v = value
 	var err error
 	for _, fun := range field.fieldFunc {
@@ -244,32 +199,38 @@ func (e *DataHolder) appendFieldValue(field *Field, value interface{}, vc *Value
 	}
 
 	if v != nil {
-		e.unsafeAppendFieldValue(field, v, value, e.keepExistingValue)
-		return nil
+		return e.unsafeAppendFieldValue(field, v, value, vc.Scope, e.keepExistingValue)
 	}
 
-	return fmt.Errorf(ErrValueIsNil, field.datastoreFieldName)
+	return fmt.Errorf(ErrValueIsNil, field.Name)
 }
 
 // UNSAFE Appends value without any checks
-func (e *DataHolder) unsafeAppendFieldValue(field *Field, value interface{}, formValue interface{}, keepExistingValue bool) {
+func (h *DataHolder) unsafeAppendFieldValue(field *Field, value interface{}, formValue interface{}, scope Scope, keepExistingValue bool) error {
+	if role, ok := field.Rules[scope]; ok {
+		if h.context.Rank < Ranks[role] {
+			return ErrNotAuthorized
+		}
+	}
+
 	if field.Multiple {
 		// Todo: Check if this check is necessary
-		if _, ok := e.data[field]; !ok {
-			e.data[field] = []interface{}{}
+		if _, ok := h.data[field]; !ok {
+			h.data[field] = []interface{}{}
 		} else if keepExistingValue {
-			return
+			return nil
 		}
-		if _, ok := e.data[field].([]interface{}); !ok {
+		if _, ok := h.data[field].([]interface{}); !ok {
 			panic(errors.New("field '" + field.Name + "' value is not []interface{}"))
 		}
-		e.data[field] = append(e.data[field].([]interface{}), value)
+		h.data[field] = append(h.data[field].([]interface{}), value)
 	} else {
-		if _, ok := e.data[field]; ok && keepExistingValue {
-			return
+		if _, ok := h.data[field]; ok && keepExistingValue {
+			return nil
 		}
-		e.data[field] = value
+		h.data[field] = value
 	}
+	return nil
 }
 
 // load from datastore properties into Data map
@@ -277,11 +238,10 @@ func (e *DataHolder) Load(ps []datastore.Property) error {
 	/*e.data = map[*Field]interface{}{}*/
 	for _, prop := range ps {
 		if field, ok := e.Entity.fields[prop.Name]; ok {
-
 			if prop.Multiple != field.Multiple {
 				return fmt.Errorf(ErrDatastoreFieldPropertyMultiDismatch, prop.Name)
 			}
-			e.unsafeAppendFieldValue(field, prop.Value, nil, e.keepExistingValue)
+			e.unsafeAppendFieldValue(field, prop.Value, nil, Read, e.keepExistingValue)
 		} else {
 			return fmt.Errorf(ErrNamedFieldNotDefined, prop.Name)
 		}
@@ -296,7 +256,7 @@ func (e *DataHolder) Save() ([]datastore.Property, error) {
 	// check if required fields are there
 	for _, field := range e.Entity.requiredFields {
 		if _, ok := e.data[field]; !ok {
-			return ps, fmt.Errorf(ErrFieldRequired, field.datastoreFieldName)
+			return ps, fmt.Errorf(ErrFieldRequired, field.Name)
 		}
 	}
 
@@ -307,7 +267,7 @@ func (e *DataHolder) Save() ([]datastore.Property, error) {
 		if field.Multiple {
 			for _, v := range value.([]interface{}) {
 				ps = append(ps, datastore.Property{
-					Name:     field.datastoreFieldName,
+					Name:     field.Name,
 					Multiple: field.Multiple,
 					Value:    v,
 					NoIndex:  field.NoIndex,
@@ -315,7 +275,7 @@ func (e *DataHolder) Save() ([]datastore.Property, error) {
 			}
 		} else {
 			ps = append(ps, datastore.Property{
-				Name:     field.datastoreFieldName,
+				Name:     field.Name,
 				Multiple: field.Multiple,
 				Value:    value,
 				NoIndex:  field.NoIndex,

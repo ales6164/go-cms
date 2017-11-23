@@ -14,10 +14,11 @@ import (
 )
 
 type Entity struct {
-	Label   string `json:"label"`   // Only a-Z characters allowed
-	Name    string `json:"name"`    // Only a-Z characters allowed
-	Private bool   `json:"private"` // Protects entity with user field - only creator has access
-	Cache   bool   `json:"cache"`   // Keeps values in memcache - good for categories, translations, ...
+	Label     string `json:"label"`     // Only a-Z characters allowed
+	Name      string `json:"name"`      // Only a-Z characters allowed
+	Private   bool   `json:"private"`   // Protects entity with user field - only creator has access
+	Protected bool   `json:"protected"` // Protects entity with password
+	Cache     bool   `json:"cache"`     // Keeps values in memcache - good for categories, translations, ...
 
 	fields map[string]*Field
 	Fields []*Field `json:"fields"`
@@ -38,6 +39,7 @@ type Entity struct {
 	Rules Rules `json:"rules"`
 
 	// Listener
+	OnInit        func(c Context, h *DataHolder) error `json:"-"`
 	OnBeforeWrite func(c Context, h *DataHolder) error `json:"-"`
 	OnAfterRead   func(c Context, h *DataHolder) error `json:"-"`
 	OnAfterWrite  func(c Context, h *DataHolder) error `json:"-"`
@@ -67,6 +69,33 @@ func (e *Entity) init() (*Entity, error) {
 		err := e.SetField(field)
 		if err != nil {
 			return e, err
+		}
+	}
+
+	// if got write rule, then set add, edit and delete rules for that
+	if rule, ok := e.Rules[Write]; ok {
+		e.Rules[Add] = rule
+		e.Rules[Edit] = rule
+		e.Rules[Delete] = rule
+	}
+
+	// set default rules
+	for _, scope := range scopes {
+		if _, ok := e.Rules[scope]; !ok {
+			e.Rules[scope] = Admin
+		}
+	}
+
+	// if private, has to have CreatedBy
+	if e.Private {
+		if _, ok := e.fields[CreatedBy.Name]; !ok {
+			return e, errors.New("private entity has no createdBy field")
+		}
+	}
+
+	if e.Protected {
+		if _, ok := e.fields[PasswordField.Name]; !ok {
+			return e, errors.New("password protected entity has no password field")
 		}
 	}
 
@@ -118,7 +147,7 @@ var CreatedBy = &Field{
 	IsRequired: true,
 	Hidden:     true,
 	Type:       Key,
-	Entity:     userEntity,
+	Entity:     User,
 	ContextFunc: func(ctx Context) interface{} {
 		if len(ctx.User) > 0 {
 			if key, err := datastore.DecodeKey(ctx.User); err == nil {
@@ -135,7 +164,7 @@ var UpdatedBy = &Field{
 	IsRequired: true,
 	Hidden:     true,
 	Type:       Key,
-	Entity:     userEntity,
+	Entity:     User,
 	ContextFunc: func(ctx Context) interface{} {
 		if len(ctx.User) > 0 {
 			if key, err := datastore.DecodeKey(ctx.User); err == nil {
@@ -160,7 +189,7 @@ func (a *SDK) EnableEntity(e *Entity) (*Entity, error) {
 		return e, err
 	}
 
-	a.enableEntityAPI(e)
+	//a.enableEntityAPI(e)
 
 	return e, nil
 }
@@ -248,6 +277,13 @@ func (e *Entity) SetField(field *Field) error {
 		field.fieldFunc = append(field.fieldFunc, field.TransformFunc)
 	}
 
+	// if got write rule, then has also add, edit and delete rule
+	if rule, ok := field.Rules[Write]; ok {
+		field.Rules[Add] = rule
+		field.Rules[Edit] = rule
+		field.Rules[Delete] = rule
+	}
+
 	return nil
 }
 
@@ -282,12 +318,13 @@ func (e *Entity) RemoveFromIndexes(ctx context.Context) {
 	}
 }
 
-func (e *Entity) New(ctx Context) *DataHolder {
+func (e *Entity) New(ctx Context) (*DataHolder, error) {
 	var dataHolder = &DataHolder{
-		Entity: e,
-		data:   Data{},
-		input:  map[string]interface{}{},
-		isNew:  true,
+		Entity:  e,
+		context: ctx,
+		data:    Data{},
+		input:   map[string]interface{}{},
+		isNew:   true,
 	}
 
 	// copy prepared values
@@ -295,7 +332,13 @@ func (e *Entity) New(ctx Context) *DataHolder {
 		dataHolder.data[field] = fun(ctx, field)
 	}
 
-	return dataHolder
+	if e.OnInit != nil {
+		if err := e.OnInit(ctx, dataHolder); err != nil {
+			return dataHolder, err
+		}
+	}
+
+	return dataHolder, nil
 }
 
 var (
