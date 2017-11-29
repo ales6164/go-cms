@@ -6,6 +6,8 @@ import (
 	"fmt"
 )
 
+// todo: different parsing techniques could be removed and implemented via api options - you could send some options to
+// todo: the api for the parser to read from the body instead of form value ...
 func (e *Entity) FromForm(c Context) (*DataHolder, error) {
 	h, err := e.New(c)
 	if err != nil {

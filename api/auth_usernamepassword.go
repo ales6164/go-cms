@@ -28,7 +28,7 @@ var User = &Entity{
 			Rules: Rules{
 				Write: Admin,
 			},
-			IsRequired: true,
+			Required: true,
 			Validator: func(value interface{}) bool {
 				return govalidator.IsEmail(value.(string))
 			},

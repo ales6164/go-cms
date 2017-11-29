@@ -1,4 +1,4 @@
-package api
+package context
 
 import (
 	"github.com/dgrijalva/jwt-go"

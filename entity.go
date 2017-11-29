@@ -1,4 +1,4 @@
-package api
+package cms
 
 import (
 	"errors"
@@ -24,7 +24,8 @@ type Entity struct {
 	Fields []*Field `json:"fields"`
 
 	// Called on every entity update. If url already exists (and is not the same as the previous url), calls again with failedCount increased by 1
-	URLFunc func(provider *URLProvider, failedCount int) string `json:"-"`
+	// todo: have a separate package for this service instead; with client id and client secret input as well
+	//URLFunc func(provider *URLProvider, failedCount int) string `json:"-"`
 
 	// Admin configuration
 	Meta Meta `json:"meta"`
