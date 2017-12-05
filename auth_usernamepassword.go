@@ -1,19 +1,17 @@
-package api
+package cms
 
 import (
 	"errors"
 	"github.com/asaskevich/govalidator"
-	"net/http"
 )
 
 var PasswordField = &Field{
 	Name:       "password",
-	IsRequired: true,
+	Required: true,
 	NoIndex:    true,
-	Validator: func(value interface{}) bool {
+	ValidateFunc: func(value interface{}) bool {
 		return govalidator.IsByteLength(value.(string), 6, 128)
 	},
-	TransformFunc: FuncHashTransform,
 }
 
 var User = &Entity{
@@ -29,7 +27,7 @@ var User = &Entity{
 				Write: Admin,
 			},
 			Required: true,
-			Validator: func(value interface{}) bool {
+			ValidateFunc: func(value interface{}) bool {
 				return govalidator.IsEmail(value.(string))
 			},
 		},
@@ -102,7 +100,7 @@ var User = &Entity{
 	},
 }
 
-func LoginHandler(w http.ResponseWriter, r *http.Request) {
+/*func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(r)
 
 	err = decrypt([]byte(d.Get(ctx, "password").([]uint8)), []byte(do.GetInput("password").(string)))
@@ -154,7 +152,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx.Print(w, data)
-}
+}*/
 
 var (
 	ErrAlreadyAuthenticated = errors.New("already authenticated")

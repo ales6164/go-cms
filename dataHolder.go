@@ -1,4 +1,4 @@
-package api
+package cms
 
 import (
 	"encoding/gob"
@@ -17,13 +17,11 @@ type DataHolder struct {
 
 	isNew             bool
 	keepExistingValue bool // turn this true when receiving old data from database; used for editing existing entity
+	lastScope         Scope // to know how to treat new data; if needs checking
 
 	id    string                 // saved during datastore operations and returned on output
-	data  Data                   // this can be edited by load/save, and conditionally with appendField functions
-	input map[string]interface{} // this can be edited by load/save, and conditionally with appendField functions
+	data  []datastore.Property                   // this can be edited by load/save, and conditionally with appendField functions
 }
-
-type Data map[*Field]interface{}
 
 const (
 	ErrNamedFieldNotDefined                string = "named field '%s' is not defined"
@@ -75,10 +73,6 @@ func (h *DataHolder) Get(ctx Context, name string) interface{} {
 		return endValue
 	}
 	return nil
-}
-
-func (h *DataHolder) GetInput(name string) interface{} {
-	return h.input[name]
 }
 
 func output(ctx Context, id string, data Data, cacheLookup bool) map[string]interface{} {
@@ -151,44 +145,17 @@ func (h *DataHolder) JSON(ctx Context) (string, error) {
 	return string(bs), err
 }
 
-// Safely appends value
-func (h *DataHolder) AppendValue(name string, value interface{}, scope Scope) error {
-	if field, ok := h.Entity.fields[name]; ok {
-		var c = &ValueContext{Field: field, Trust: Base, Scope: scope}
-		return h.appendFieldValue(field, value, c)
+// Appends any kind of value to the named property
+// Skips with no errors if field doesn't exist
+func (dh *DataHolder) AppendValue(name string, value interface{}) error {
+	if field, ok := dh.Entity.fields[name]; ok {
+		return dh.appendFieldValue(field, value)
 	}
-
-	// skip
-	//return fmt.Errorf(ErrNamedFieldNotDefined, name)
-
-	return nil
-}
-
-func (e *DataHolder) appendValue(name string, value interface{}, trust ValueTrust, scope Scope) error {
-	e.input[name] = value
-
-	if field, ok := e.Entity.fields[name]; ok {
-
-		// to keep it from deleting value
-		// todo
-		/*if (field.Type == FileType || field.Type == ImageType) && field.IsRequired {
-			if fileUrl, ok := value.(string); !ok || len(fileUrl) == 0 {
-				return nil
-			}
-		}*/
-
-		var c = &ValueContext{Field: field, Trust: trust, Scope: scope}
-		return e.appendFieldValue(field, value, c)
-	}
-
-	// skip
-	//return fmt.Errorf(ErrNamedFieldNotDefined, name)
-
 	return nil
 }
 
 // Safely appends value
-func (e *DataHolder) appendFieldValue(field *Field, value interface{}, vc *ValueContext) error {
+func (e *DataHolder) appendFieldValue(field *Field, value interface{}) error {
 	var v = value
 	var err error
 	for _, fun := range field.fieldFunc {
@@ -263,6 +230,8 @@ func (e *DataHolder) Save() ([]datastore.Property, error) {
 	// create datastore property list
 	for field, value := range e.data {
 		// set group name
+
+		datastore.Entity{}
 
 		if field.Multiple {
 			for _, v := range value.([]interface{}) {

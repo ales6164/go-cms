@@ -1,6 +1,4 @@
-package api
-
-import "google.golang.org/appengine/log"
+package cms
 
 type Rules map[Scope]Role
 type Role string

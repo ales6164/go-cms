@@ -1,4 +1,4 @@
-package api
+package cms
 
 type URLProvider struct {
 	context        Context

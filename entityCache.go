@@ -1,8 +1,11 @@
-package api
+package cms
 
 import (
 	"google.golang.org/appengine/memcache"
+	"time"
 )
+
+var CacheExpiration = time.Duration(0)
 
 func (e *Entity) Lookup(ctx Context, id string) (map[string]interface{}, error) {
 	var data map[string]interface{}
@@ -24,17 +27,17 @@ func (e *Entity) Lookup(ctx Context, id string) (map[string]interface{}, error) 
 	return data, err
 }
 
-func (e *Entity) CacheData(ctx Context, holder *EntityDataHolder) error {
+func (e *Entity) CacheData(ctx Context, holder *DataHolder) error {
 	_, err := e.cacheData(ctx, holder)
 	return err
 }
 
-func (e *Entity) cacheData(ctx Context, holder *EntityDataHolder) (map[string]interface{}, error) {
+func (e *Entity) cacheData(ctx Context, holder *DataHolder) (map[string]interface{}, error) {
 	var output = output(ctx, holder.id, holder.data, false)
 
 	var item = &memcache.Item{
 		Key:        holder.id,
-		Expiration: e.Cache.Expiration,
+		Expiration: CacheExpiration,
 		Object:     output,
 	}
 

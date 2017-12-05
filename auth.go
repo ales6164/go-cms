@@ -1,4 +1,4 @@
-package api
+package cms
 
 import (
 	"errors"

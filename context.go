@@ -1,4 +1,4 @@
-package context
+package cms
 
 import (
 	"github.com/dgrijalva/jwt-go"

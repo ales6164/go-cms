@@ -2,15 +2,12 @@ package cms
 
 import (
 	"errors"
-	"fmt"
-	"github.com/asaskevich/govalidator"
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/delay"
 	"google.golang.org/appengine/log"
-	"regexp"
 	"time"
-	"strconv"
+	"net/http"
 )
 
 type Entity struct {
@@ -27,9 +24,6 @@ type Entity struct {
 	// todo: have a separate package for this service instead; with client id and client secret input as well
 	//URLFunc func(provider *URLProvider, failedCount int) string `json:"-"`
 
-	// Admin configuration
-	Meta Meta `json:"meta"`
-
 	preparedData map[*Field]func(ctx Context, f *Field) interface{}
 
 	requiredFields []*Field
@@ -40,10 +34,13 @@ type Entity struct {
 	Rules Rules `json:"rules"`
 
 	// Listener
+	// todo: change this a bit
 	OnInit        func(c Context, h *DataHolder) error `json:"-"`
 	OnBeforeWrite func(c Context, h *DataHolder) error `json:"-"`
 	OnAfterRead   func(c Context, h *DataHolder) error `json:"-"`
 	OnAfterWrite  func(c Context, h *DataHolder) error `json:"-"`
+
+	Handler http.Handler
 }
 
 type Parser struct {
@@ -103,97 +100,6 @@ func (e *Entity) init() (*Entity, error) {
 	return e, nil
 }
 
-var CreatedAt = &Field{
-	Name:       "createdAt",
-	Hidden:     true,
-	IsRequired: true,
-	Type:       DateTime,
-	ValueFunc: func() interface{} {
-		return time.Now().UTC()
-	},
-}
-
-var UpdatedAt = &Field{
-	Name:       "updatedAt",
-	Hidden:     true,
-	IsRequired: true,
-	Type:       DateTime,
-	ValueFunc: func() interface{} {
-		return time.Now().UTC()
-	},
-}
-
-var PublishedAt = &Field{
-	Name:       "publishedAt",
-	Hidden:     true,
-	IsRequired: true,
-	Type:       DateTime,
-	TransformFunc: func(ctx *ValueContext, value interface{}) (interface{}, error) {
-		var t time.Time
-		if val, ok := value.(int64); ok {
-			t = time.Unix(val, 0)
-		} else if val, ok := value.(string); ok {
-			val, err := strconv.Atoi(val)
-			if err != nil {
-				return t, err
-			}
-			t = time.Unix(int64(val), 0)
-		}
-		return t.UTC(), nil
-	},
-}
-
-var CreatedBy = &Field{
-	Name:       "createdBy",
-	IsRequired: true,
-	Hidden:     true,
-	Type:       Key,
-	Entity:     User,
-	ContextFunc: func(ctx Context) interface{} {
-		if len(ctx.User) > 0 {
-			if key, err := datastore.DecodeKey(ctx.User); err == nil {
-				return key
-			}
-			return nil
-		}
-		return nil
-	},
-}
-
-var UpdatedBy = &Field{
-	Name:       "updatedBy",
-	IsRequired: true,
-	Hidden:     true,
-	Type:       Key,
-	Entity:     User,
-	ContextFunc: func(ctx Context) interface{} {
-		if len(ctx.User) > 0 {
-			if key, err := datastore.DecodeKey(ctx.User); err == nil {
-				return key
-			}
-			return nil
-		}
-		return nil
-	},
-}
-
-func (a *SDK) EnableEntity(e *Entity) (*Entity, error) {
-	if len(e.Name) == 0 {
-		return e, errors.New("entity name can't be empty")
-	}
-	if !govalidator.IsAlpha(e.Name) {
-		return e, errors.New("entity name can only be a-Z characters")
-	}
-
-	e, err := e.init()
-	if err != nil {
-		return e, err
-	}
-
-	//a.enableEntityAPI(e)
-
-	return e, nil
-}
 
 func (e *Entity) SetField(field *Field) error {
 	if len(field.Name) == 0 {
@@ -210,7 +116,7 @@ func (e *Entity) SetField(field *Field) error {
 
 	e.fields[field.Name] = field
 
-	if field.IsRequired {
+	if field.Required {
 		e.requiredFields = append(e.requiredFields, field)
 	}
 
@@ -226,24 +132,21 @@ func (e *Entity) SetField(field *Field) error {
 		}
 	}
 
-	if field.ContextFunc != nil {
+	/*if field.ContextFunc != nil {
 		e.preparedData[field] = func(ctx Context, f *Field) interface{} {
 			return f.ContextFunc(ctx)
 		}
-	}
+	}*/
 
-	if len(field.ValidateRgx) > 0 {
-		field.fieldFunc = append(field.fieldFunc, func(c *ValueContext, v interface{}) (interface{}, error) {
-			if c.Trust == High {
-				return v, nil
-			}
+	/*if len(field.Validate) > 0 {
+		field.fieldFunc = append(field.fieldFunc, func( v interface{}) (interface{}, error) {
 
 			var matched bool
 			var err error
 
 			switch val := v.(type) {
 			case string:
-				matched, err = regexp.Match(field.ValidateRgx, []byte(val))
+				matched, err = regexp.Match(field.Validate, []byte(val))
 				break
 			default:
 				return v, fmt.Errorf(ErrFieldValueNotValid, c.Field.Name)
@@ -276,7 +179,7 @@ func (e *Entity) SetField(field *Field) error {
 
 	if field.TransformFunc != nil {
 		field.fieldFunc = append(field.fieldFunc, field.TransformFunc)
-	}
+	}*/
 
 	// if got write rule, then has also add, edit and delete rule
 	if rule, ok := field.Rules[Write]; ok {
@@ -319,27 +222,14 @@ func (e *Entity) RemoveFromIndexes(ctx context.Context) {
 	}
 }
 
-func (e *Entity) New(ctx Context) (*DataHolder, error) {
+func (e *Entity) New(ctx Context) *DataHolder {
 	var dataHolder = &DataHolder{
 		Entity:  e,
 		context: ctx,
-		data:    Data{},
-		input:   map[string]interface{}{},
 		isNew:   true,
 	}
 
-	// copy prepared values
-	for field, fun := range e.preparedData {
-		dataHolder.data[field] = fun(ctx, field)
-	}
-
-	if e.OnInit != nil {
-		if err := e.OnInit(ctx, dataHolder); err != nil {
-			return dataHolder, err
-		}
-	}
-
-	return dataHolder, nil
+	return dataHolder
 }
 
 var (

@@ -1,17 +1,18 @@
 package cms
 
-import "github.com/ales6164/go-cms/api"
+import "time"
 
 type Field struct {
-	Label    string    `json:"label"`
-	Name     string    `json:"name"`
-	Type     Type      `json:"type"`
-	Required bool      `json:"required"`
-	Hidden   bool      `json:"hidden"`
-	ReadOnly bool      `json:"readOnly"`
-	Multiple bool      `json:"multiple"`
-	NoIndex  bool      `json:"noIndex"`
-	Rules    api.Rules `json:"rules"`
+	Label        string `json:"label"`
+	Name         string `json:"name"`
+	Type         Type   `json:"type"`
+	IsRequired   bool   `json:"isRequired"`
+	IsReadOnly   bool   `json:"isReadOnly"`
+	IsIDProvider bool   `json:"isIDProvider"`
+	Multiple     bool   `json:"multiple"`
+	NoIndex      bool   `json:"noIndex"`
+	Rules        Rules  `json:"rules"`
+	isMeta       bool
 
 	Widget Widget `json:"widget"` // todo: based on field type widget is picked automatically; can be manually set as well
 
@@ -22,56 +23,128 @@ type Field struct {
 	DefaultValue interface{}        `json:"-"`
 	ValueFunc    func() interface{} `json:"-"`
 
+	Validate     string                       `json:"validate"` // regex
 	ValidateFunc func(value interface{}) bool `json:"-"`
-	Validate     string                       `json:"validate"`
 
-	//GroupEntity GroupEntity `json:"groupEntity"`   // if defined, value stored as an separate entity; in field stored key
-	// todo: I'd like to remove this; move evertything away from this kind?
-	//Meta Meta `json:"meta"` // used for automatic admin html template creation
+	TransformFunc func(value interface{}) interface{} `json:"-"`
 
+	propertyFunc func(ctx Context, formInput []string) interface{}
 	// prepared functions for dealing with data
 	// todo: leaving parsing to the entityParser but handling all inputs via these handlers: onInput, onValidate, on...
 	// todo: these handling functions could then be assembled into one whole prepared function for the fastest response
-	fieldFunc []func(ctx *ValueContext, v interface{}) (interface{}, error)
+	//fieldFunc []func(ctx *ValueContext, v interface{}) (interface{}, error)
+}
+
+func (f *Field) init() *Field {
+	var fun func(ctx Context, formInput []string) interface{}
+	switch f.Type {
+
+	default:
+		fun = FormOneValue
+	}
+
+	f.inputParseFunc = fun
+	return f
+}
+
+func FormOneValue(ctx Context, formInput []string) interface{} {
+	return formInput[0]
 }
 
 type Type string
 type Widget string
 
 const (
-	Text           Type = "text"
-	LongText       Type = "long_text"
-	HTML           Type = "html"
-	Date           Type = "date"
-	GeoPoint       Type = "geo_point"
-	Language       Type = "language"
-	Time           Type = "time"
-	Key            Type = "key"
-	EmbeddedEntity Type = "entity"
-	DateTime       Type = "date_time"
-	File           Type = "file"
-	Image          Type = "image"
-	Number         Type = "number"
-	DecimalNumber  Type = "decimal_number"
-	Boolean        Type = "boolean"
+	ID            Type = "id"
+	Text          Type = "text"
+	LongText      Type = "longText"
+	Timestamp     Type = "timestamp"
+	HTML          Type = "html"
+	GeoPoint      Type = "geoPoint"
+	Language      Type = "language"
+	Key           Type = "key"
+	NestedEntity  Type = "nestedEntity"
+	Number        Type = "number"
+	URL           Type = "url"
+	DecimalNumber Type = "decimalNumber"
+	Boolean       Type = "boolean"
 
 	Input       Widget = "input"
-	TextArea    Widget = "text_area"
-	ColorPicker Widget = "color_picker"
+	TextArea    Widget = "textArea"
+	ColorPicker Widget = "colorPicker"
 	Select      Widget = "select"
 )
 
-// todo: move somewhere else
-/*
-type SearchField struct {
-	Name          string
-	Derived       bool
-	Language      string
-	TransformFunc func(value interface{}) (interface{}, error) `json:"-"`
+var createdAt = &Field{
+	Name:    "_createdAt",
+	isMeta:  true,
+	NoIndex: true,
+	Type:    Timestamp,
+	ValueFunc: func() interface{} {
+		return time.Now().UTC()
+	},
 }
 
-type SearchFacet struct {
-	Name          string
-	TransformFunc func(value interface{}) (interface{}, error) `json:"-"`
+var updatedAt = &Field{
+	Name:    "_updatedAt",
+	isMeta:  true,
+	NoIndex: true,
+	Type:    Timestamp,
+	ValueFunc: func() interface{} {
+		return time.Now().UTC()
+	},
 }
-*/
+
+var publishedAt = &Field{
+	Name:    "_publishedAt",
+	isMeta:  true,
+	NoIndex: true,
+	Type:    Timestamp,
+	/*TransformFunc: func(value interface{}) (interface{}, error) {
+		var t time.Time
+		if val, ok := value.(int64); ok {
+			t = time.Unix(val, 0)
+		} else if val, ok := value.(string); ok {
+			val, err := strconv.Atoi(val)
+			if err != nil {
+				return t, err
+			}
+			t = time.Unix(int64(val), 0)
+		}
+		return t.UTC(), nil
+	},*/
+}
+
+var createdBy = &Field{
+	Name:    "_createdBy",
+	isMeta:  true,
+	NoIndex: true,
+	Type:    Key,
+	/*Entity:     User,*/
+	/*ContextFunc: func(ctx Context) interface{} {
+		if len(ctx.User) > 0 {
+			if key, err := datastore.DecodeKey(ctx.User); err == nil {
+				return key
+			}
+			return nil
+		}
+		return nil
+	},*/
+}
+
+var updatedBy = &Field{
+	Name:    "_updatedBy",
+	isMeta:  true,
+	NoIndex: true,
+	Type:    Key,
+	/*Entity:     User,*/
+	/*ContextFunc: func(ctx Context) interface{} {
+		if len(ctx.User) > 0 {
+			if key, err := datastore.DecodeKey(ctx.User); err == nil {
+				return key
+			}
+			return nil
+		}
+		return nil
+	},*/
+}
