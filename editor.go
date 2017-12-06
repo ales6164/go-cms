@@ -67,9 +67,9 @@ func editor() http.Handler {
 }
 
 func renderEditor(w http.ResponseWriter, r *http.Request) {
+	ctx := NewContext(r)
 	err := index.ExecuteTemplate(w, "editor", options)
 	if err != nil {
-		ctx := NewContext(r)
 		ctx.PrintError(w, err, http.StatusInternalServerError)
 	}
 }

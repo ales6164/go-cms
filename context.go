@@ -17,9 +17,10 @@ type Context struct {
 
 	Context context.Context
 
-	User string // encoded User key
-	Role Role
-	Rank int
+	User  string // encoded User key
+	Role  Role
+	Rank  int
+	Scope Scope
 
 	IsAuthenticated bool
 	Token           Token
@@ -45,6 +46,11 @@ func NewContext(r *http.Request) Context {
 		err:             err,
 		body:            &Body{hasReadBody: false},
 	}
+}
+
+func (c Context) WithScope(s Scope) Context {
+	c.Scope = s
+	return c
 }
 
 func (c Context) WithBody() Context {
@@ -95,7 +101,7 @@ func getUser(r *http.Request) (bool, Role, string, Token, error) {
 				if time.Now().Unix()-int64(exp) < time.Now().Add(time.Hour * 24 * 7).Unix() {
 					if userKey, ok := claims["sub"].(string); ok {
 						if userRole, ok := claims["rol"].(int); ok {
-							renewedToken, err = newToken(userKey, Role(userRole))
+							renewedToken, err = newToken(userKey, Role(userRole), r.Context().Value("key"))
 							if err != nil {
 								return isAuthenticated, Role(userRole), userKey, renewedToken, err
 							}
@@ -108,4 +114,28 @@ func getUser(r *http.Request) (bool, Role, string, Token, error) {
 	}
 
 	return isAuthenticated, userRole, userKey, renewedToken, err
+}
+
+type OptionContext struct {
+	store map[interface{}]interface{}
+}
+
+func (*OptionContext) Deadline() (deadline time.Time, ok bool) {
+	return
+}
+
+func (*OptionContext) Done() <-chan struct{} {
+	return nil
+}
+
+func (c *OptionContext) Err() error {
+	return nil
+}
+
+func (c *OptionContext) Value(key interface{}) interface{} {
+	return c.store[key]
+}
+
+func (*OptionContext) String() string {
+	return "cms.Context"
 }

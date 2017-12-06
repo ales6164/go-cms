@@ -2,11 +2,7 @@ package cms
 
 import (
 	"errors"
-	"golang.org/x/net/context"
 	"google.golang.org/appengine/datastore"
-	"google.golang.org/appengine/delay"
-	"google.golang.org/appengine/log"
-	"time"
 	"net/http"
 )
 
@@ -22,7 +18,8 @@ type Entity struct {
 
 	// Called on every entity update. If url already exists (and is not the same as the previous url), calls again with failedCount increased by 1
 	// todo: have a separate package for this service instead; with client id and client secret input as well
-	//URLFunc func(provider *URLProvider, failedCount int) string `json:"-"`
+	NameFunc     func(providedFieldValue interface{}, oldName string, failedCount int) string `json:"-"`
+	nameProvider *Field
 
 	preparedData map[*Field]func(ctx Context, f *Field) interface{}
 
@@ -56,8 +53,12 @@ func (e *Entity) init() (*Entity, error) {
 			panic(errors.New("field name can't be empty"))
 		}
 
-		if field.Name == "_id" || field.Name == "id" {
-			panic(errors.New("field name _id/id is reserved and can't be used"))
+		if field.Name == "id" {
+			panic(errors.New("field name 'id' is reserved and can't be used"))
+		}
+
+		if field.Name == "meta" {
+			panic(errors.New("field name 'meta' is reserved and can't be used"))
 		}
 
 		if field.Name[:1] == "_" {
@@ -67,6 +68,13 @@ func (e *Entity) init() (*Entity, error) {
 		err := e.SetField(field)
 		if err != nil {
 			return e, err
+		}
+
+		if field.IsNameProvider {
+			if e.nameProvider != nil {
+				return e, errors.New("multiple name provider fields detected")
+			}
+			e.nameProvider = field
 		}
 	}
 
@@ -85,12 +93,6 @@ func (e *Entity) init() (*Entity, error) {
 	}
 
 	// if private, has to have CreatedBy
-	if e.Private {
-		if _, ok := e.fields[CreatedBy.Name]; !ok {
-			return e, errors.New("private entity has no createdBy field")
-		}
-	}
-
 	if e.Protected {
 		if _, ok := e.fields[PasswordField.Name]; !ok {
 			return e, errors.New("password protected entity has no password field")
@@ -99,7 +101,6 @@ func (e *Entity) init() (*Entity, error) {
 
 	return e, nil
 }
-
 
 func (e *Entity) SetField(field *Field) error {
 	if len(field.Name) == 0 {
@@ -115,22 +116,6 @@ func (e *Entity) SetField(field *Field) error {
 	}
 
 	e.fields[field.Name] = field
-
-	if field.Required {
-		e.requiredFields = append(e.requiredFields, field)
-	}
-
-	if field.DefaultValue != nil {
-		e.preparedData[field] = func(ctx Context, f *Field) interface{} {
-			return f.DefaultValue
-		}
-	}
-
-	if field.ValueFunc != nil {
-		e.preparedData[field] = func(ctx Context, f *Field) interface{} {
-			return f.ValueFunc()
-		}
-	}
 
 	/*if field.ContextFunc != nil {
 		e.preparedData[field] = func(ctx Context, f *Field) interface{} {
@@ -194,7 +179,7 @@ func (e *Entity) SetField(field *Field) error {
 /**
 Adds index document definition and subscribes it to data changes
 */
-func (e *Entity) AddIndex(dd *DocumentDefinition) {
+/*func (e *Entity) AddIndex(dd *DocumentDefinition) {
 	if e.indexes == nil {
 		e.indexes = map[string]*DocumentDefinition{}
 	}
@@ -220,59 +205,18 @@ func (e *Entity) RemoveFromIndexes(ctx context.Context) {
 	for _, dd := range e.indexes {
 		removeFromIndex.Call(ctx, *dd)
 	}
-}
-
-func (e *Entity) New(ctx Context) *DataHolder {
-	var dataHolder = &DataHolder{
-		Entity:  e,
-		context: ctx,
-		isNew:   true,
-	}
-
-	return dataHolder
-}
+}*/
 
 var (
 	ErrKeyNameIdNil         = errors.New("key nameId is nil")
 	ErrKeyNameIdInvalidType = errors.New("key nameId invalid type (only string/int64)")
 )
 
-func (e *Entity) DecodeKey(c Context, encodedKey string) (Context, *datastore.Key, error) {
-	var key *datastore.Key
-	var err error
-
-	key, err = datastore.DecodeKey(encodedKey)
-	if err != nil {
-		return c, key, err
-	}
-
-	return c, key, err
-}
-
-func (e *Entity) NewIncompleteKey(c Context) (Context, *datastore.Key) {
-	var key *datastore.Key
-
-	key = datastore.NewIncompleteKey(c.Context, e.Name, nil)
-
-	return c, key
+func (e *Entity) NewIncompleteKey(c Context)  *datastore.Key {
+	return datastore.NewIncompleteKey(c.Context, e.Name, nil)
 }
 
 // Gets appengine context and datastore key with optional namespace. It doesn't fail if request is not authenticated.
-func (e *Entity) NewKey(c Context, nameId interface{}) (Context, *datastore.Key, error) {
-	var key *datastore.Key
-	var err error
-
-	if nameId == nil {
-		return c, key, ErrKeyNameIdNil
-	}
-
-	if stringId, ok := nameId.(string); ok {
-		key = datastore.NewKey(c.Context, e.Name, stringId, 0, nil)
-	} else if intId, ok := nameId.(int64); ok {
-		key = datastore.NewKey(c.Context, e.Name, "", intId, nil)
-	} else {
-		return c, key, ErrKeyNameIdInvalidType
-	}
-
-	return c, key, err
+func (e *Entity) NewKey(c Context, nameId string)  *datastore.Key {
+	return datastore.NewKey(c.Context, e.Name, nameId, 0, nil)
 }

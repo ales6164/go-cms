@@ -1,54 +1,121 @@
 package cms
 
-import "time"
+import (
+	"google.golang.org/appengine/datastore"
+	"fmt"
+	"reflect"
+	"github.com/asaskevich/govalidator"
+)
 
 type Field struct {
-	Label        string `json:"label"`
-	Name         string `json:"name"`
-	Type         Type   `json:"type"`
-	IsRequired   bool   `json:"isRequired"`
-	IsReadOnly   bool   `json:"isReadOnly"`
-	IsIDProvider bool   `json:"isIDProvider"`
-	Multiple     bool   `json:"multiple"`
-	NoIndex      bool   `json:"noIndex"`
-	Rules        Rules  `json:"rules"`
-	isMeta       bool
+	Label      string `json:"label"`
+	Name       string `json:"name"`
+	Type       Type   `json:"type"`
+	IsRequired bool   `json:"isRequired"`
+	/*	IsReadOnly   bool   `json:"isReadOnly"`*/
+	IsNameProvider bool  `json:"isIDProvider"`
+	Multiple     bool  `json:"multiple"`
+	NoIndex      bool  `json:"noIndex"`
+	Rules        Rules `json:"rules"`
+	/*isMeta       bool*/ // not implemented yet
 
 	Widget Widget `json:"widget"` // todo: based on field type widget is picked automatically; can be manually set as well
 
 	// todo: add some group-like/embedded-entity field implementation? gob data encoding/decoding?
-	Source *Entity `json:"-"` // if set, value should be encoded entity key
+	//Source *Entity `json:"-"` // if set, value should be encoded entity key
 	//Lookup bool    `json:"lookup"` // if true, looks up entity value on output; todo: this could be query specific and not global setting
 
+	// not yet implemented:
 	DefaultValue interface{}        `json:"-"`
 	ValueFunc    func() interface{} `json:"-"`
 
-	Validate     string                       `json:"validate"` // regex
+	Validate     string                       `json:"validate"` // regex pattern; only works for string values
 	ValidateFunc func(value interface{}) bool `json:"-"`
 
 	TransformFunc func(value interface{}) interface{} `json:"-"`
 
-	propertyFunc func(ctx Context, formInput []string) interface{}
 	// prepared functions for dealing with data
 	// todo: leaving parsing to the entityParser but handling all inputs via these handlers: onInput, onValidate, on...
 	// todo: these handling functions could then be assembled into one whole prepared function for the fastest response
 	//fieldFunc []func(ctx *ValueContext, v interface{}) (interface{}, error)
 }
 
-func (f *Field) init() *Field {
-	var fun func(ctx Context, formInput []string) interface{}
-	switch f.Type {
+// todo: make this as a prepared function as Fields property
+func (f *Field) parse(ctx Context, input interface{}) ([]datastore.Property, error) {
+	var list []datastore.Property
 
-	default:
-		fun = FormOneValue
+	if f.Rules != nil {
+		// if rule is set, check if users rank is sufficient
+		if role, ok := f.Rules[ctx.Scope]; ok && ctx.Rank < Ranks[role] {
+			// users rank is lower - action forbidden
+			return list, ErrForbidden
+		}
 	}
 
-	f.inputParseFunc = fun
-	return f
+	// Multiple
+	if f.Multiple {
+		if multiArray, ok := input.([]interface{}); ok {
+			for _, value := range multiArray {
+				parsedValue, err := f.parseSingleValue(ctx, value)
+				if err != nil {
+					return list, err
+				}
+				list = append(list, parsedValue)
+			}
+		} else if input == nil {
+			emptyValue, err := f.parseSingleValue(ctx, input)
+			if err != nil {
+				return list, err
+			}
+			list = append(list, emptyValue)
+		} else {
+			// input type not valid
+			return list, fmt.Errorf("field '%s' value type '%s' is not valid", f.Name, reflect.TypeOf(input).String())
+		}
+	} else {
+		parsedValue, err := f.parseSingleValue(ctx, input)
+		if err != nil {
+			return list, err
+		}
+		list = append(list, parsedValue)
+	}
+
+	// value func - this is left out till the end... only gets fired if field datastore property doesn't exist
+
+	return list, nil
 }
 
-func FormOneValue(ctx Context, formInput []string) interface{} {
-	return formInput[0]
+// TODO: Implement Entity as value functionality
+func (f *Field) parseSingleValue(ctx Context, input interface{}) (datastore.Property, error) {
+	var p datastore.Property
+
+	if input == nil && f.IsRequired {
+		return p, fmt.Errorf("field '%s' value is required", f.Name)
+	}
+
+	if len(f.Validate) > 0 {
+		if stringValue, ok := input.(string); ok && !govalidator.Matches(stringValue, f.Validate) {
+			return p, fmt.Errorf("field '%s' value is not valid", f.Name)
+		}
+	} else if f.ValidateFunc != nil {
+		if !f.ValidateFunc(input) {
+			return p, fmt.Errorf("field '%s' value is not valid", f.Name)
+		}
+	}
+
+	if f.TransformFunc != nil {
+		input = f.TransformFunc(input)
+		if err, ok := input.(error); ok {
+			return p, err
+		}
+	}
+
+	return datastore.Property{
+		Name:     f.Name,
+		Multiple: f.Multiple,
+		Value:    input,
+		NoIndex:  f.NoIndex,
+	}, nil
 }
 
 type Type string
@@ -74,77 +141,3 @@ const (
 	ColorPicker Widget = "colorPicker"
 	Select      Widget = "select"
 )
-
-var createdAt = &Field{
-	Name:    "_createdAt",
-	isMeta:  true,
-	NoIndex: true,
-	Type:    Timestamp,
-	ValueFunc: func() interface{} {
-		return time.Now().UTC()
-	},
-}
-
-var updatedAt = &Field{
-	Name:    "_updatedAt",
-	isMeta:  true,
-	NoIndex: true,
-	Type:    Timestamp,
-	ValueFunc: func() interface{} {
-		return time.Now().UTC()
-	},
-}
-
-var publishedAt = &Field{
-	Name:    "_publishedAt",
-	isMeta:  true,
-	NoIndex: true,
-	Type:    Timestamp,
-	/*TransformFunc: func(value interface{}) (interface{}, error) {
-		var t time.Time
-		if val, ok := value.(int64); ok {
-			t = time.Unix(val, 0)
-		} else if val, ok := value.(string); ok {
-			val, err := strconv.Atoi(val)
-			if err != nil {
-				return t, err
-			}
-			t = time.Unix(int64(val), 0)
-		}
-		return t.UTC(), nil
-	},*/
-}
-
-var createdBy = &Field{
-	Name:    "_createdBy",
-	isMeta:  true,
-	NoIndex: true,
-	Type:    Key,
-	/*Entity:     User,*/
-	/*ContextFunc: func(ctx Context) interface{} {
-		if len(ctx.User) > 0 {
-			if key, err := datastore.DecodeKey(ctx.User); err == nil {
-				return key
-			}
-			return nil
-		}
-		return nil
-	},*/
-}
-
-var updatedBy = &Field{
-	Name:    "_updatedBy",
-	isMeta:  true,
-	NoIndex: true,
-	Type:    Key,
-	/*Entity:     User,*/
-	/*ContextFunc: func(ctx Context) interface{} {
-		if len(ctx.User) > 0 {
-			if key, err := datastore.DecodeKey(ctx.User); err == nil {
-				return key
-			}
-			return nil
-		}
-		return nil
-	},*/
-}

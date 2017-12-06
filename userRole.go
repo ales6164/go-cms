@@ -1,5 +1,7 @@
 package cms
 
+import "errors"
+
 type Rules map[Scope]Role
 type Role string
 type Scope string
@@ -35,3 +37,5 @@ func (c Context) HasScope(e *Entity, scope Scope) bool {
 
 	return false
 }
+
+var ErrForbidden = errors.New("action forbidden")

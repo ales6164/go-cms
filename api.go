@@ -22,6 +22,7 @@ type API struct {
 
 type Server struct {
 	h *mux.Router
+	k []byte
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -35,22 +36,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.Method == "OPTIONS" {
 		return
 	}
+
+	ctx := &OptionContext{
+		store: map[interface{}]interface{}{
+			"key": s.k,
+		},
+	}
+
+	req.WithContext(ctx)
 	s.h.ServeHTTP(w, req)
 }
 
-func NewAPI(path string) *API {
+func NewAPI() *API {
 	var signingKey = securecookie.GenerateRandomKey(64)
-	var r = mux.NewRouter().Path(path).Subrouter()
+	var r = mux.NewRouter()
 
 	a := &API{
-		path:          path,
 		router:        r,
 		middleware:    AuthMiddleware(signingKey),
-		Handler:       &Server{r},
+		Handler:       &Server{r, signingKey},
 		EditorHandler: editor(),
 	}
 
 	return a
+}
+
+func (a *API) Handle(path string, e *Entity) http.Handler {
+	return e.handler(path)
 }
 
 func (a *API) Add(es ...*Entity) error {

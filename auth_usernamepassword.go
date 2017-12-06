@@ -7,7 +7,7 @@ import (
 
 var PasswordField = &Field{
 	Name:       "password",
-	Required: true,
+	IsRequired: true,
 	NoIndex:    true,
 	ValidateFunc: func(value interface{}) bool {
 		return govalidator.IsByteLength(value.(string), 6, 128)
@@ -26,7 +26,7 @@ var User = &Entity{
 			Rules: Rules{
 				Write: Admin,
 			},
-			Required: true,
+			IsRequired: true,
 			ValidateFunc: func(value interface{}) bool {
 				return govalidator.IsEmail(value.(string))
 			},
