@@ -13,7 +13,7 @@ var Ranks = map[Role]int{
 	Admin:      3,
 }
 
-var scopes = []Scope{Read, Write, Add, Edit, Delete}
+var scopes = []Scope{Read, Write, Add, Update, Delete}
 
 var (
 	Guest      Role = "guest"
@@ -24,7 +24,7 @@ var (
 	Read   Scope = "read"
 	Write  Scope = "write"
 	Add    Scope = "add"
-	Edit   Scope = "edit"
+	Update Scope = "update"
 	Delete Scope = "delete"
 )
 

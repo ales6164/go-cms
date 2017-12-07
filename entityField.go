@@ -14,15 +14,16 @@ type Field struct {
 	IsRequired bool   `json:"isRequired"`
 	/*	IsReadOnly   bool   `json:"isReadOnly"`*/
 	IsNameProvider bool  `json:"isIDProvider"`
-	Multiple     bool  `json:"multiple"`
-	NoIndex      bool  `json:"noIndex"`
-	Rules        Rules `json:"rules"`
-	/*isMeta       bool*/ // not implemented yet
+	Multiple       bool  `json:"multiple"`
+	NoIndex        bool  `json:"noIndex"`
+	Rules          Rules `json:"rules"`
+
+	isNesting bool // field name is of pattern one.two
 
 	Widget Widget `json:"widget"` // todo: based on field type widget is picked automatically; can be manually set as well
 
 	// todo: add some group-like/embedded-entity field implementation? gob data encoding/decoding?
-	//Source *Entity `json:"-"` // if set, value should be encoded entity key
+	Source *Entity `json:"-"` // if set, value should be encoded entity key
 	//Lookup bool    `json:"lookup"` // if true, looks up entity value on output; todo: this could be query specific and not global setting
 
 	// not yet implemented:

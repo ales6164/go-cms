@@ -3,7 +3,7 @@ package cms
 import (
 	"fmt"
 	"google.golang.org/appengine/datastore"
-	"time"
+	"strings"
 )
 
 // PreparedEntity data holder
@@ -17,19 +17,20 @@ type DataHolder struct {
 
 	key *datastore.Key
 
-	waiting map[*Field]bool // after first parse we can put empty fields in here for the second parse
-	Data    []datastore.Property `json:"data"`
-	Meta    Meta                 `json:"meta"`
+	prepared bool              // true if has prepared data
+	writer   map[*Field]wrtOpt // if updating entity we want to push updated fields here to keep them from rewriting on second load
+	Data     map[string][]datastore.Property `json:"data"`
 
 	nameProviderValue interface{} // value for entity.NameFunc
 }
 
-type Meta struct {
-	Name      string         `datastore:"name",json:"name"`
-	CreatedAt time.Time      `datastore:"createdAt",json:"createdAt"`
-	UpdatedAt time.Time      `datastore:"updatedAt",json:"updatedAt"`
-	CreatedBy *datastore.Key `datastore:"createdBy",json:"createdBy"`
-}
+type wrtOpt int
+
+const (
+	PreventRewrite wrtOpt = 0
+	Rewritable     wrtOpt = 1
+	Required       wrtOpt = 2
+)
 
 const (
 	ErrNamedFieldNotDefined                string = "named field '%s' is not defined"
@@ -45,8 +46,8 @@ func (e *Entity) New(ctx Context) *DataHolder {
 	var dataHolder = &DataHolder{
 		Entity:  e,
 		context: ctx,
-		waiting: map[*Field]bool{},
-		Meta:    Meta{},
+		writer:  map[*Field]wrtOpt{},
+		Data:    map[string][]datastore.Property{},
 	}
 	return dataHolder
 }
@@ -57,6 +58,7 @@ func (h *DataHolder) Prepare(m map[string]interface{}) (*DataHolder, error) {
 	var err error
 
 	for _, f := range h.Entity.Fields {
+
 		// map contains field
 		if value, ok := m[f.Name]; ok {
 
@@ -69,35 +71,107 @@ func (h *DataHolder) Prepare(m map[string]interface{}) (*DataHolder, error) {
 				h.nameProviderValue = value
 			}
 
-			h.Data = append(h.Data, props...)
+			h.Data[f.Name] = props
+			h.writer[f] = PreventRewrite
+		} else if ok, err := h.parseNested(f, m); ok {
+			if err != nil {
+				return h, err
+			}
+		} else if f.IsRequired {
+			h.writer[f] = Required
 		} else {
-			// map doesn't contain this field; this could mean we don't want to change exiting value OR the field value
-			// is not required; required checks are done in on Save() function
-			h.waiting[f] = true
+			h.writer[f] = Rewritable
 		}
 	}
+
+	h.prepared = true
 
 	return h, err
 }
 
-func appendValue(field interface{}, value interface{}, multiple bool) interface{} {
-	if multiple {
-		if field == nil {
-			field = []interface{}{}
+func (h *DataHolder) parseNested(f *Field, m map[string]interface{}) (bool, error) {
+	names := strings.Split(f.Name, ".")
+
+	if _, ok := m[names[0]]; ok {
+
+		var endValue = m[names[0]]
+		for i := 1; i < len(names); i++ {
+			if nestedMap, ok := endValue.(map[string]interface{}); ok {
+				endValue = nestedMap[names[i]]
+			} else {
+				return false, nil
+			}
 		}
-		field = append(field.([]interface{}), value)
-	} else {
-		field = value
+
+		props, err := f.parse(h.context, endValue)
+		if err != nil {
+			return true, err
+		}
+
+		if f.IsNameProvider {
+			h.nameProviderValue = endValue
+		}
+
+		h.Data[f.Name] = props
+		h.writer[f] = PreventRewrite
+
+		return true, nil
 	}
-	return field
+
+	return false, nil
+}
+
+
+func (h *DataHolder) AppendProperty(prop datastore.Property) {
+	h.Data[prop.Name] = appendProperty(h.Data[prop.Name], prop)
+}
+
+func (h *DataHolder) SetProperty(prop datastore.Property) {
+	h.Data[prop.Name] = []datastore.Property{}
+	h.Data[prop.Name] = appendProperty(h.Data[prop.Name], prop)
+}
+
+// appends value
+func appendValue(dst interface{}, value interface{}, multiple bool) interface{} {
+	if multiple {
+		if dst == nil {
+			dst = []interface{}{}
+		}
+		dst = append(dst.([]interface{}), value)
+	} else {
+		dst = value
+	}
+	return dst
+}
+
+// appends property to dst; it can return a flat object or structured
+func appendPropertyValue(dst map[string]interface{}, prop datastore.Property) map[string]interface{} {
+
+	names := strings.Split(prop.Name, ".")
+	if len(names) > 1 {
+		prop.Name = strings.Join(names[1:], ".")
+		if _, ok := dst[names[0]].(map[string]interface{}); !ok {
+			dst[names[0]] = map[string]interface{}{}
+		}
+		dst[names[0]] = appendPropertyValue(dst[names[0]].(map[string]interface{}), prop)
+	} else {
+		dst[names[0]] = appendValue(dst[names[0]], prop.Value, prop.Multiple)
+	}
+
+	return dst
+
+}
+
+func appendProperty(field []datastore.Property, prop datastore.Property) []datastore.Property {
+	return append(field, prop)
 }
 
 func (h *DataHolder) Output(ctx Context) map[string]interface{} {
 	var output = map[string]interface{}{}
 
 	// range over data. Value can be single value or if the field it Multiple then it's an array
-	for _, property := range h.Data {
-		if f, ok := h.Entity.fields[property.Name]; ok {
+	for name, propertyList := range h.Data {
+		if f, ok := h.Entity.fields[name]; ok {
 			if f.Rules != nil {
 				// if rule is set, check if users rank is sufficient
 				if role, ok := f.Rules[ctx.Scope]; ok && ctx.Rank < Ranks[role] {
@@ -106,12 +180,15 @@ func (h *DataHolder) Output(ctx Context) map[string]interface{} {
 					continue
 				}
 			}
-			output[f.Name] = appendValue(output[f.Name], property.Value, f.Multiple)
+		}
+
+		for _, prop := range propertyList {
+			output = appendPropertyValue(output, prop)
 		}
 	}
 
 	output["id"] = h.key.Encode()
-	output["meta"] = h.Meta
+	//output["meta"] = h.Meta
 
 	return output
 }
@@ -187,36 +264,29 @@ func (h *DataHolder) JSON(ctx Context) (string, error) {
 // PropertyLoadSaver interface implementation. If dataHolder already contains data, it replaces only waiting fields
 // Extracts Meta info
 func (h *DataHolder) Load(ps []datastore.Property) error {
-	if len(h.Data) > 0 {
+	if h.prepared {
+		for _, prop := range ps {
+			if f, ok := h.Entity.fields[prop.Name]; ok {
 
-		for _, property := range ps {
-			if property.Name == "meta" {
-				h.Meta = property.Value.(Meta)
-				continue
-			}
+				if opt, ok := h.writer[f]; !ok || opt != PreventRewrite {
 
-			if f, ok := h.Entity.fields[property.Name]; ok && h.waiting[f] {
+					newProperty, err := f.parseSingleValue(h.context, prop.Value)
+					if err != nil {
+						return fmt.Errorf("error loading stored entity as field '%s' value breaks new parsing requirements: %s", f.Name, err.Error())
+					}
 
-				newProperty, err := f.parseSingleValue(h.context, property.Value)
-				if err != nil {
-					return fmt.Errorf("error loading stored entity as field '%s' value breaks new parsing requirements: %s", f.Name, err.Error())
+					h.Data[f.Name] = appendProperty(h.Data[f.Name], newProperty)
+
+					h.writer[f] = Rewritable
 				}
-
-				h.Data = append(h.Data, newProperty)
+			} else {
+				h.Data[prop.Name] = appendProperty(h.Data[prop.Name], prop)
 			}
 		}
-
 	} else {
-		for i, property := range ps {
-			if property.Name == "meta" {
-				h.Meta = property.Value.(Meta)
-
-				ps = remove(ps, i)
-				break
-			}
+		for _, prop := range ps {
+			h.Data[prop.Name] = appendProperty(h.Data[prop.Name], prop)
 		}
-
-		h.Data = ps
 	}
 
 	return nil
@@ -224,18 +294,19 @@ func (h *DataHolder) Load(ps []datastore.Property) error {
 
 func (h *DataHolder) Save() ([]datastore.Property, error) {
 	// check if required fields are there
-	for f, isEmpty := range h.waiting {
-		if f.IsRequired && isEmpty {
-			return h.Data, fmt.Errorf("error saving data: field '%s' value is required", f.Name)
+	for f, opt := range h.writer {
+		if opt == Required {
+			return nil, fmt.Errorf("error saving data: field '%s' value is required", f.Name)
 		}
 	}
 
-	return append([]datastore.Property{{
-		Value:    h.Meta,
-		Name:     "meta",
-		Multiple: false,
-		NoIndex:  false,
-	}}, h.Data...), nil
+	var props []datastore.Property
+
+	for _, prop := range h.Data {
+		props = append(props, prop...)
+	}
+
+	return props, nil
 }
 
 func remove(s []datastore.Property, i int) []datastore.Property {

@@ -34,23 +34,37 @@ type Body struct {
 }
 
 func NewContext(r *http.Request) Context {
+	var scope Scope
+	switch r.Method {
+	case "GET":
+		scope = Read
+		break
+	case "POST":
+		scope = Add
+		break
+	case "PUT":
+		scope = Update
+		break
+	case "DELETE":
+		scope = Delete
+		break
+	default:
+		return Context{}
+	}
+
 	isAuthenticated, userRole, userKey, renewedToken, err := getUser(r)
 	return Context{
 		r:               r,
 		Context:         appengine.NewContext(r),
 		IsAuthenticated: isAuthenticated,
 		Role:            userRole,
+		Scope:           scope,
 		Rank:            Ranks[userRole],
 		User:            userKey,
 		Token:           renewedToken,
 		err:             err,
 		body:            &Body{hasReadBody: false},
 	}
-}
-
-func (c Context) WithScope(s Scope) Context {
-	c.Scope = s
-	return c
 }
 
 func (c Context) WithBody() Context {
@@ -114,28 +128,4 @@ func getUser(r *http.Request) (bool, Role, string, Token, error) {
 	}
 
 	return isAuthenticated, userRole, userKey, renewedToken, err
-}
-
-type OptionContext struct {
-	store map[interface{}]interface{}
-}
-
-func (*OptionContext) Deadline() (deadline time.Time, ok bool) {
-	return
-}
-
-func (*OptionContext) Done() <-chan struct{} {
-	return nil
-}
-
-func (c *OptionContext) Err() error {
-	return nil
-}
-
-func (c *OptionContext) Value(key interface{}) interface{} {
-	return c.store[key]
-}
-
-func (*OptionContext) String() string {
-	return "cms.Context"
 }

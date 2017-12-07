@@ -76,13 +76,16 @@ func (e *Entity) Add(ctx Context, m map[string]interface{}) (*DataHolder, error)
 				}
 				key = e.NewKey(ctx, keyName)
 				err := datastore.Get(tc, key, &tempEnt)
-				if err == nil || err != datastore.ErrNoSuchEntity  {
+				if err == nil || err != datastore.ErrNoSuchEntity {
 					if i == NameFuncMaxRetries {
 						return fmt.Errorf("name function reached max retries with not result")
 					}
 					continue
 				}
-				dataHolder.Meta.Name = keyName
+				dataHolder.SetProperty(datastore.Property{
+					Name:  "meta.name",
+					Value: keyName,
+				})
 				break
 			}
 		} else {
@@ -90,13 +93,23 @@ func (e *Entity) Add(ctx Context, m map[string]interface{}) (*DataHolder, error)
 		}
 
 		var now = time.Now()
-		dataHolder.Meta.CreatedAt = now
-		dataHolder.Meta.UpdatedAt = now
+		dataHolder.SetProperty(datastore.Property{
+			Name:  "meta.createdAt",
+			Value: now,
+		})
+		dataHolder.SetProperty(datastore.Property{
+			Name:  "meta.updatedAt",
+			Value: now,
+		})
 		if ctx.IsAuthenticated && len(ctx.User) > 0 {
-			dataHolder.Meta.CreatedBy, err = datastore.DecodeKey(ctx.User)
+			createdBy, err := datastore.DecodeKey(ctx.User)
 			if err != nil {
 				return errors.New("error decoding user key")
 			}
+			dataHolder.SetProperty(datastore.Property{
+				Name:  "meta.createdBy",
+				Value: createdBy,
+			})
 		}
 
 		dataHolder.key, err = datastore.Put(tc, key, dataHolder)
@@ -124,7 +137,7 @@ func (e *Entity) Update(ctx Context, id string, name string, m map[string]interf
 
 	dataHolder, err := e.New(ctx).Prepare(m)
 	if err != nil {
-		return dataHolder, err
+		return dataHolder, errors.New("prepare: " + err.Error())
 	}
 
 	err = datastore.RunInTransaction(ctx.Context, func(tc context.Context) error {
@@ -145,13 +158,16 @@ func (e *Entity) Update(ctx Context, id string, name string, m map[string]interf
 				}
 				newKey = e.NewKey(ctx, keyName)
 				err := datastore.Get(tc, newKey, &tempEnt)
-				if err == nil || err != datastore.ErrNoSuchEntity  {
+				if err == nil || err != datastore.ErrNoSuchEntity {
 					if i == NameFuncMaxRetries {
 						return fmt.Errorf("name function reached max retries with not result")
 					}
 					continue
 				}
-				dataHolder.Meta.Name = keyName
+				dataHolder.SetProperty(datastore.Property{
+					Name:  "meta.name",
+					Value: keyName,
+				})
 				break
 			}
 
@@ -165,13 +181,19 @@ func (e *Entity) Update(ctx Context, id string, name string, m map[string]interf
 		}
 
 		var now = time.Now()
-		dataHolder.Meta.CreatedAt = now
-		dataHolder.Meta.UpdatedAt = now
+		dataHolder.SetProperty(datastore.Property{
+			Name:  "meta.updatedAt",
+			Value: now,
+		})
 		if ctx.IsAuthenticated && len(ctx.User) > 0 {
-			dataHolder.Meta.CreatedBy, err = datastore.DecodeKey(ctx.User)
+			createdBy, err := datastore.DecodeKey(ctx.User)
 			if err != nil {
 				return errors.New("error decoding user key")
 			}
+			dataHolder.SetProperty(datastore.Property{
+				Name:  "meta.createdBy",
+				Value: createdBy,
+			})
 		}
 
 		dataHolder.key, err = datastore.Put(tc, key, dataHolder)

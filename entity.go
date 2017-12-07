@@ -4,6 +4,7 @@ import (
 	"errors"
 	"google.golang.org/appengine/datastore"
 	"net/http"
+	"strings"
 )
 
 type Entity struct {
@@ -65,6 +66,10 @@ func (e *Entity) init() (*Entity, error) {
 			panic(errors.New("field name can't start with an underscore"))
 		}
 
+		if len(strings.Split(field.Name, ".")) > 1 {
+			field.isNesting = true
+		}
+
 		err := e.SetField(field)
 		if err != nil {
 			return e, err
@@ -81,7 +86,7 @@ func (e *Entity) init() (*Entity, error) {
 	// if got write rule, then set add, edit and delete rules for that
 	if rule, ok := e.Rules[Write]; ok {
 		e.Rules[Add] = rule
-		e.Rules[Edit] = rule
+		e.Rules[Update] = rule
 		e.Rules[Delete] = rule
 	}
 
@@ -169,7 +174,7 @@ func (e *Entity) SetField(field *Field) error {
 	// if got write rule, then has also add, edit and delete rule
 	if rule, ok := field.Rules[Write]; ok {
 		field.Rules[Add] = rule
-		field.Rules[Edit] = rule
+		field.Rules[Update] = rule
 		field.Rules[Delete] = rule
 	}
 
