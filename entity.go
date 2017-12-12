@@ -22,8 +22,6 @@ type Entity struct {
 	NameFunc     func(providedFieldValue interface{}, oldName string, failedCount int) string `json:"-"`
 	nameProvider *Field
 
-	preparedData map[*Field]func(ctx Context, f *Field) interface{}
-
 	requiredFields []*Field
 
 	indexes map[string]*DocumentDefinition
@@ -41,14 +39,7 @@ type Entity struct {
 	Handler http.Handler
 }
 
-type Parser struct {
-	Field     *Field
-	ParseFunc func(ctx Context, fieldName string) (interface{}, error)
-}
-
 func (e *Entity) init() (*Entity, error) {
-	e.preparedData = map[*Field]func(ctx Context, f *Field) interface{}{}
-
 	for _, field := range e.Fields {
 		if len(field.Name) == 0 {
 			panic(errors.New("field name can't be empty"))
@@ -217,11 +208,11 @@ var (
 	ErrKeyNameIdInvalidType = errors.New("key nameId invalid type (only string/int64)")
 )
 
-func (e *Entity) NewIncompleteKey(c Context)  *datastore.Key {
+func (e *Entity) NewIncompleteKey(c Context) *datastore.Key {
 	return datastore.NewIncompleteKey(c.Context, e.Name, nil)
 }
 
 // Gets appengine context and datastore key with optional namespace. It doesn't fail if request is not authenticated.
-func (e *Entity) NewKey(c Context, nameId string)  *datastore.Key {
+func (e *Entity) NewKey(c Context, nameId string) *datastore.Key {
 	return datastore.NewKey(c.Context, e.Name, nameId, 0, nil)
 }

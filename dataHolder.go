@@ -121,7 +121,6 @@ func (h *DataHolder) parseNested(f *Field, m map[string]interface{}) (bool, erro
 	return false, nil
 }
 
-
 func (h *DataHolder) AppendProperty(prop datastore.Property) {
 	h.Data[prop.Name] = appendProperty(h.Data[prop.Name], prop)
 }
@@ -132,11 +131,25 @@ func (h *DataHolder) SetProperty(prop datastore.Property) {
 }
 
 // appends value
-func appendValue(dst interface{}, value interface{}, multiple bool) interface{} {
+func (h *DataHolder) appendValue(dst interface{}, field *Field, value interface{}, multiple bool, lookup bool) interface{} {
+	if lookup && field != nil && field.Source != nil {
+		if encodedKey, ok := value.(string); ok {
+			key, _ := datastore.DecodeKey(encodedKey)
+
+			var dataHolder = h.Entity.New(h.context)
+			dataHolder.key = key
+
+			datastore.Get(h.context.Context, key, dataHolder)
+
+			value = dataHolder.Output(h.context, false)
+		}
+	}
+
 	if multiple {
 		if dst == nil {
 			dst = []interface{}{}
 		}
+
 		dst = append(dst.([]interface{}), value)
 	} else {
 		dst = value
@@ -145,7 +158,7 @@ func appendValue(dst interface{}, value interface{}, multiple bool) interface{} 
 }
 
 // appends property to dst; it can return a flat object or structured
-func appendPropertyValue(dst map[string]interface{}, prop datastore.Property) map[string]interface{} {
+func (h *DataHolder) appendPropertyValue(dst map[string]interface{}, prop datastore.Property, field *Field, lookup bool) map[string]interface{} {
 
 	names := strings.Split(prop.Name, ".")
 	if len(names) > 1 {
@@ -153,9 +166,9 @@ func appendPropertyValue(dst map[string]interface{}, prop datastore.Property) ma
 		if _, ok := dst[names[0]].(map[string]interface{}); !ok {
 			dst[names[0]] = map[string]interface{}{}
 		}
-		dst[names[0]] = appendPropertyValue(dst[names[0]].(map[string]interface{}), prop)
+		dst[names[0]] = h.appendPropertyValue(dst[names[0]].(map[string]interface{}), prop, field, lookup)
 	} else {
-		dst[names[0]] = appendValue(dst[names[0]], prop.Value, prop.Multiple)
+		dst[names[0]] = h.appendValue(dst[names[0]], field, prop.Value, prop.Multiple, lookup)
 	}
 
 	return dst
@@ -166,12 +179,14 @@ func appendProperty(field []datastore.Property, prop datastore.Property) []datas
 	return append(field, prop)
 }
 
-func (h *DataHolder) Output(ctx Context) map[string]interface{} {
+func (h *DataHolder) Output(ctx Context, lookup bool) map[string]interface{} {
 	var output = map[string]interface{}{}
 
 	// range over data. Value can be single value or if the field it Multiple then it's an array
 	for name, propertyList := range h.Data {
-		if f, ok := h.Entity.fields[name]; ok {
+		var f *Field
+		var ok bool
+		if f, ok = h.Entity.fields[name]; ok {
 			if f.Rules != nil {
 				// if rule is set, check if users rank is sufficient
 				if role, ok := f.Rules[ctx.Scope]; ok && ctx.Rank < Ranks[role] {
@@ -183,7 +198,7 @@ func (h *DataHolder) Output(ctx Context) map[string]interface{} {
 		}
 
 		for _, prop := range propertyList {
-			output = appendPropertyValue(output, prop)
+			output = h.appendPropertyValue(output, prop, f, lookup)
 		}
 	}
 

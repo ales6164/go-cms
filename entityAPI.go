@@ -6,7 +6,6 @@ import (
 	"google.golang.org/appengine/datastore"
 )
 
-
 func (e *Entity) handleGetEntityInfo() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := NewContext(r).WithBody()
@@ -23,8 +22,7 @@ func (e *Entity) handleGet() func(w http.ResponseWriter, r *http.Request) {
 
 		key, err := datastore.DecodeKey(encodedKey)
 		if err != nil {
-			ctx.PrintError(w, err, http.StatusBadRequest)
-			return
+			key = e.NewKey(ctx, encodedKey)
 		}
 
 		var dataHolder = e.New(ctx)
@@ -36,7 +34,7 @@ func (e *Entity) handleGet() func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ctx.Print(w, dataHolder.Output(ctx))
+		ctx.Print(w, dataHolder.Output(ctx, true))
 	}
 }
 
@@ -56,7 +54,7 @@ func (e *Entity) handleAdd() func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ctx.Print(w, holder.Output(ctx))
+		ctx.Print(w, holder.Output(ctx, true))
 	}
 }
 
@@ -78,6 +76,6 @@ func (e *Entity) handleUpdate() func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ctx.Print(w, holder.Output(ctx))
+		ctx.Print(w, holder.Output(ctx, true))
 	}
 }

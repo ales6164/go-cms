@@ -46,6 +46,8 @@ func NewAPI() *API {
 	signingKey = securecookie.GenerateRandomKey(64)
 	var r = mux.NewRouter()
 
+	r.Handle("/", editor())
+
 	a := &API{
 		router:        r,
 		middleware:    AuthMiddleware(signingKey),

@@ -10,7 +10,7 @@ var index *template.Template
 var options map[string]interface{}
 var LocalAssetsHost = "localhost:3000"
 
-const CDNAssetsHost = "google.com"
+var CDNAssetsHost = "google.com"
 
 func init() {
 	var err error
@@ -23,7 +23,7 @@ func init() {
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <title>CMS</title>
+    <title>Sample Project</title>
 
     <!-- Global stylesheet -->
     <link rel="stylesheet" href="//{{ .assetsHost }}/style.min.css">

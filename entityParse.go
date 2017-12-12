@@ -70,7 +70,7 @@ func (e *Entity) Add(ctx Context, m map[string]interface{}) (*DataHolder, error)
 			var tempEnt datastore.PropertyList
 
 			for i := 1; i <= NameFuncMaxRetries; i++ {
-				var keyName = e.NameFunc(dataHolder.nameProviderValue, "", i)
+				var keyName = e.NameFunc(dataHolder.nameProviderValue, "", i-1)
 				if len(keyName) == 0 {
 					return errors.New("name can't be empty")
 				}
@@ -78,7 +78,7 @@ func (e *Entity) Add(ctx Context, m map[string]interface{}) (*DataHolder, error)
 				err := datastore.Get(tc, key, &tempEnt)
 				if err == nil || err != datastore.ErrNoSuchEntity {
 					if i == NameFuncMaxRetries {
-						return fmt.Errorf("name function reached max retries with not result")
+						return fmt.Errorf("name function reached max retries with no result")
 					}
 					continue
 				}
@@ -115,7 +115,7 @@ func (e *Entity) Add(ctx Context, m map[string]interface{}) (*DataHolder, error)
 		dataHolder.key, err = datastore.Put(tc, key, dataHolder)
 
 		return err
-	}, nil)
+	}, &datastore.TransactionOptions{XG: true})
 
 	return dataHolder, err
 }
@@ -156,14 +156,19 @@ func (e *Entity) Update(ctx Context, id string, name string, m map[string]interf
 				if len(keyName) == 0 {
 					return errors.New("name can't be empty")
 				}
-				newKey = e.NewKey(ctx, keyName)
-				err := datastore.Get(tc, newKey, &tempEnt)
-				if err == nil || err != datastore.ErrNoSuchEntity {
-					if i == NameFuncMaxRetries {
-						return fmt.Errorf("name function reached max retries with not result")
+
+				// skip check if new name matches old
+				if key.StringID() != keyName {
+					newKey = e.NewKey(ctx, keyName)
+					err := datastore.Get(tc, newKey, &tempEnt)
+					if err == nil || err != datastore.ErrNoSuchEntity {
+						if i == NameFuncMaxRetries {
+							return fmt.Errorf("name function reached max retries with not result")
+						}
+						continue
 					}
-					continue
 				}
+
 				dataHolder.SetProperty(datastore.Property{
 					Name:  "meta.name",
 					Value: keyName,
@@ -199,7 +204,7 @@ func (e *Entity) Update(ctx Context, id string, name string, m map[string]interf
 		dataHolder.key, err = datastore.Put(tc, key, dataHolder)
 
 		return err
-	}, nil)
+	}, &datastore.TransactionOptions{XG: true})
 
 	return dataHolder, err
 }

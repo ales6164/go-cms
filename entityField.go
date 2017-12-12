@@ -12,8 +12,10 @@ type Field struct {
 	Name       string `json:"name"`
 	Type       Type   `json:"type"`
 	IsRequired bool   `json:"isRequired"`
+
 	/*	IsReadOnly   bool   `json:"isReadOnly"`*/
 	IsNameProvider bool  `json:"isIDProvider"`
+	/*Unique         bool   `json:"unique"`*/
 	Multiple       bool  `json:"multiple"`
 	NoIndex        bool  `json:"noIndex"`
 	Rules          Rules `json:"rules"`
