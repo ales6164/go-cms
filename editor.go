@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"html/template"
 	"google.golang.org/appengine"
+	"fmt"
+	"google.golang.org/appengine/user"
 )
 
 var index *template.Template
@@ -37,7 +39,7 @@ func init() {
 </head>
 <body>
 
-<div class="-app side"></div>
+<div class="-app side" data-logout="{{ .logout }}" data-user="{{ .user }}"></div>
 
 <script>
     // save entry component for global event handling; could also use customComponents.main
@@ -67,7 +69,20 @@ func editor() http.Handler {
 }
 
 func renderEditor(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-type", "text/html; charset=utf-8")
 	ctx := NewContext(r)
+
+	u := user.Current(ctx.Context)
+	if u == nil {
+		url, _ := user.LoginURL(ctx.Context, "/")
+		fmt.Fprintf(w, `<a href="%s">Sign in or register</a>`, url)
+		return
+	}
+	url, _ := user.LogoutURL(ctx.Context, "/")
+
+	options["logout"] = url
+	options["user"] = u
+
 	err := index.ExecuteTemplate(w, "editor", options)
 	if err != nil {
 		ctx.PrintError(w, err, http.StatusInternalServerError)
