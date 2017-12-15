@@ -62,6 +62,8 @@ func (e *Entity) handleAdd() func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		holder.updateSearchIndex()
+
 		ctx.Print(w, holder.Output(ctx, true))
 	}
 }
@@ -89,6 +91,12 @@ func (e *Entity) handleUpdate() func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		holder.updateSearchIndex()
+
 		ctx.Print(w, holder.Output(ctx, true))
 	}
+}
+
+func (h *DataHolder) updateSearchIndex() {
+
 }
