@@ -7,7 +7,6 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/asaskevich/govalidator"
 	"fmt"
-	"path"
 )
 
 type API struct {
@@ -17,8 +16,9 @@ type API struct {
 	EditorHandler http.Handler
 	middleware    *JWTMiddleware
 	sessionStore  *sessions.CookieStore
-	entities      []*Entity
-	installed     bool
+
+	entities       []*Entity
+	handledEntities []*Entity
 }
 
 type Server struct {
@@ -46,30 +46,32 @@ func NewAPI() *API {
 	signingKey = securecookie.GenerateRandomKey(64)
 	var r = mux.NewRouter()
 
-	r.Handle("/", editor())
-
 	a := &API{
-		router:        r,
-		middleware:    AuthMiddleware(signingKey),
-		Handler:       &Server{r},
-		EditorHandler: editor(),
+		router:     r,
+		middleware: AuthMiddleware(signingKey),
+		Handler:    &Server{r},
 	}
+
+	a.EditorHandler = a.editor()
 
 	return a
 }
 
-func (a *API) Handle(p string, e *Entity) {
+func (a *API) Handle(p string, e *Entity) *mux.Router {
 
-	a.router.HandleFunc(path.Join(p, "{encodedKey}"), e.handleGet()).Methods(http.MethodGet)
-	a.router.HandleFunc(path.Join(p, "{encodedKey}"), e.handleUpdate()).Methods(http.MethodPut)
-	a.router.HandleFunc(p, e.handleAdd()).Methods(http.MethodPost)
-	a.router.HandleFunc(p, func(w http.ResponseWriter, r *http.Request) {
+	var sub = a.router.PathPrefix(p).Subrouter()
+
+	sub.HandleFunc("/{encodedKey}", e.handleGet()).Methods(http.MethodGet)
+	sub.HandleFunc("/{encodedKey}", e.handleUpdate()).Methods(http.MethodPut)
+	sub.HandleFunc("", e.handleAdd()).Methods(http.MethodPost)
+	sub.HandleFunc("", func(w http.ResponseWriter, r *http.Request) {
 		ctx := NewContext(r)
-
-		ctx.Print(w, "Hello world")
+		ctx.Print(w, "Hello "+e.Name)
 	}).Methods(http.MethodGet)
 
-	return
+	a.handledEntities = append(a.handledEntities, e)
+
+	return sub
 }
 
 func (a *API) Add(es ...*Entity) error {

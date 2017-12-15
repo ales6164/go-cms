@@ -3,26 +3,41 @@ package cms
 import (
 	"errors"
 	"github.com/asaskevich/govalidator"
+	"google.golang.org/appengine/datastore"
 )
 
 var PasswordField = &Field{
-	Name:       "password",
-	IsRequired: true,
-	NoIndex:    true,
+	Name:    "password",
+	NoIndex: true,
 	ValidateFunc: func(value interface{}) bool {
 		return govalidator.IsByteLength(value.(string), 6, 128)
 	},
 }
 
 var User = &Entity{
-	Name:      "user",
-	Protected: true,
+	Name: "user",
 	Rules: Rules{
 		Add: Guest,
 	},
+	NameFunc: func(providedFieldValue interface{}, oldName string, failedCount int) (string, error) {
+		if failedCount > 0 {
+			if valueString, ok := providedFieldValue.(string); ok {
+				return "", errors.New("username " + valueString + " already taken")
+			}
+			return "", errors.New("username of invalid type")
+		}
+		if len(oldName) > 0 {
+			return oldName, nil
+		}
+		if valueString, ok := providedFieldValue.(string); ok && govalidator.IsEmail(valueString){
+			return valueString, nil
+		}
+		return "", errors.New("invalid provided field value")
+	},
 	Fields: []*Field{
 		{
-			Name: "email",
+			Name:           "email",
+			IsNameProvider: true,
 			Rules: Rules{
 				Write: Admin,
 			},
@@ -37,7 +52,6 @@ var User = &Entity{
 			Rules: Rules{
 				Write: Admin,
 			},
-			DefaultValue: 1,
 		},
 		PasswordField,
 		/*{
@@ -98,6 +112,55 @@ var User = &Entity{
 		}
 		return nil
 	},
+}
+/*
+func LoginHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := NewContext(r)
+
+	err = decrypt([]byte(d.Get(ctx, "password").([]uint8)), []byte(do.GetInput("password").(string)))
+	if err != nil {
+		ctx.PrintError(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	err = ctx.NewUserToken(d.id, Role(d.Get(ctx, "role").(string)))
+	if err != nil {
+		ctx.PrintError(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	ctx.Print(w, data)
+}*/
+
+func login(ctx Context, username string, password string) (Token, error) {
+	data, err := getUser(ctx, username)
+	if err != nil {
+		return Token{}, err
+	}
+
+	if uintPass, ok := data["password"].([]uint8); ok {
+		err = decrypt([]byte(uintPass), []byte(password))
+		if err != nil {
+			return Token{}, err
+		}
+
+		return newToken(username, Role(data["role"].(int64)), tokenKey)
+	}
+
+	return Token{}, ErrForbidden
+}
+
+func getUser(ctx Context, username string) (map[string]interface{}, error) {
+
+	var dataHolder = User.New(ctx)
+	dataHolder.key = User.NewKey(ctx, username)
+
+	err := datastore.Get(ctx.Context, dataHolder.key, dataHolder)
+	if err != nil {
+		return nil, err
+	}
+
+	return dataHolder.UnsafeOutput(), nil
 }
 
 /*func LoginHandler(w http.ResponseWriter, r *http.Request) {

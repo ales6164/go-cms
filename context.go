@@ -52,7 +52,7 @@ func NewContext(r *http.Request) Context {
 		return Context{}
 	}
 
-	isAuthenticated, userRole, userKey, renewedToken, err := getUser(r)
+	isAuthenticated, userRole, userKey, renewedToken, err := getReqUser(r)
 	return Context{
 		r:               r,
 		Context:         appengine.NewContext(r),
@@ -76,6 +76,21 @@ func (c Context) WithBody() Context {
 	return c
 }
 
+func (c Context) WithEntityAction(e *Entity, s Scope) (Context, error) {
+	if c.Role == Admin {
+		return c, nil
+	}
+	if e.Rules != nil {
+		// if rule is set, check if users rank is sufficient
+		if role, ok := e.Rules[c.Scope]; ok && c.Rank >= Ranks[role] {
+			// users has a sufficient rank - action allowed
+			return c, nil
+		}
+
+	}
+	return c, ErrForbidden
+}
+
 // return true if userKey matches with userKey in token
 func (c Context) UserMatches(userKey interface{}) bool {
 	if userKeyString, ok := userKey.(string); ok {
@@ -88,7 +103,7 @@ func (c Context) UserMatches(userKey interface{}) bool {
 	return false
 }
 
-func getUser(r *http.Request) (bool, Role, string, Token, error) {
+func getReqUser(r *http.Request) (bool, Role, string, Token, error) {
 	var isAuthenticated bool
 	var userRole Role = "guest"
 	var userKey string

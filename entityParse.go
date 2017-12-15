@@ -70,12 +70,15 @@ func (e *Entity) Add(ctx Context, m map[string]interface{}) (*DataHolder, error)
 			var tempEnt datastore.PropertyList
 
 			for i := 1; i <= NameFuncMaxRetries; i++ {
-				var keyName = e.NameFunc(dataHolder.nameProviderValue, "", i-1)
+				var keyName, err = e.NameFunc(dataHolder.nameProviderValue, "", i-1)
+				if err != nil {
+					return err
+				}
 				if len(keyName) == 0 {
 					return errors.New("name can't be empty")
 				}
 				key = e.NewKey(ctx, keyName)
-				err := datastore.Get(tc, key, &tempEnt)
+				err = datastore.Get(tc, key, &tempEnt)
 				if err == nil || err != datastore.ErrNoSuchEntity {
 					if i == NameFuncMaxRetries {
 						return fmt.Errorf("name function reached max retries with no result")
@@ -152,7 +155,10 @@ func (e *Entity) Update(ctx Context, id string, name string, m map[string]interf
 			var tempEnt datastore.PropertyList
 
 			for i := 1; i <= NameFuncMaxRetries; i++ {
-				var keyName = e.NameFunc(dataHolder.nameProviderValue, key.StringID(), i)
+				var keyName, err = e.NameFunc(dataHolder.nameProviderValue, key.StringID(), i)
+				if err != nil {
+					return err
+				}
 				if len(keyName) == 0 {
 					return errors.New("name can't be empty")
 				}

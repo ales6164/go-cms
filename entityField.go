@@ -29,8 +29,8 @@ type Field struct {
 	//Lookup bool    `json:"lookup"` // if true, looks up entity value on output; todo: this could be query specific and not global setting
 
 	// not yet implemented:
-	DefaultValue interface{}        `json:"-"`
-	ValueFunc    func() interface{} `json:"-"`
+	//DefaultValue interface{}        `json:"-"`
+	//ValueFunc    func() interface{} `json:"-"`
 
 	Validate     string                       `json:"validate"` // regex pattern; only works for string values
 	ValidateFunc func(value interface{}) bool `json:"-"`

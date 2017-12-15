@@ -156,6 +156,18 @@ func (h *DataHolder) appendValue(dst interface{}, field *Field, value interface{
 	}
 	return dst
 }
+func (h *DataHolder) simpleAppendValue(dst interface{}, value interface{}, multiple bool) interface{} {
+	if multiple {
+		if dst == nil {
+			dst = []interface{}{}
+		}
+
+		dst = append(dst.([]interface{}), value)
+	} else {
+		dst = value
+	}
+	return dst
+}
 
 // appends property to dst; it can return a flat object or structured
 func (h *DataHolder) appendPropertyValue(dst map[string]interface{}, prop datastore.Property, field *Field, lookup bool) map[string]interface{} {
@@ -172,7 +184,21 @@ func (h *DataHolder) appendPropertyValue(dst map[string]interface{}, prop datast
 	}
 
 	return dst
+}
+func (h *DataHolder) simpleAppendPropertyValue(dst map[string]interface{}, prop datastore.Property) map[string]interface{} {
 
+	names := strings.Split(prop.Name, ".")
+	if len(names) > 1 {
+		prop.Name = strings.Join(names[1:], ".")
+		if _, ok := dst[names[0]].(map[string]interface{}); !ok {
+			dst[names[0]] = map[string]interface{}{}
+		}
+		dst[names[0]] = h.simpleAppendPropertyValue(dst[names[0]].(map[string]interface{}), prop)
+	} else {
+		dst[names[0]] = h.simpleAppendValue(dst[names[0]], prop.Value, prop.Multiple)
+	}
+
+	return dst
 }
 
 func appendProperty(field []datastore.Property, prop datastore.Property) []datastore.Property {
@@ -199,6 +225,23 @@ func (h *DataHolder) Output(ctx Context, lookup bool) map[string]interface{} {
 
 		for _, prop := range propertyList {
 			output = h.appendPropertyValue(output, prop, f, lookup)
+		}
+	}
+
+	output["id"] = h.key.Encode()
+	//output["meta"] = h.Meta
+
+	return output
+}
+
+// Faster but not safe. Don't output this data as it doesn't check user rules
+func (h *DataHolder) UnsafeOutput() map[string]interface{} {
+	var output = map[string]interface{}{}
+
+	// range over data. Value can be single value or if the field it Multiple then it's an array
+	for _, propertyList := range h.Data {
+		for _, prop := range propertyList {
+			output = h.simpleAppendPropertyValue(output, prop)
 		}
 	}
 

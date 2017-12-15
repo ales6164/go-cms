@@ -15,9 +15,13 @@ func (e *Entity) handleGetEntityInfo() func(w http.ResponseWriter, r *http.Reque
 
 func (e *Entity) handleGet() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := NewContext(r)
-		vars := mux.Vars(r)
+		ctx, err := NewContext(r).WithEntityAction(e, Read)
+		if err != nil {
+			ctx.PrintError(w, err, http.StatusForbidden)
+			return
+		}
 
+		vars := mux.Vars(r)
 		encodedKey := vars["encodedKey"]
 
 		key, err := datastore.DecodeKey(encodedKey)
@@ -40,7 +44,11 @@ func (e *Entity) handleGet() func(w http.ResponseWriter, r *http.Request) {
 
 func (e *Entity) handleAdd() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := NewContext(r)
+		ctx, err := NewContext(r).WithEntityAction(e, Add)
+		if err != nil {
+			ctx.PrintError(w, err, http.StatusForbidden)
+			return
+		}
 
 		data, err := ParseBody(ctx)
 		if err != nil {
@@ -60,7 +68,12 @@ func (e *Entity) handleAdd() func(w http.ResponseWriter, r *http.Request) {
 
 func (e *Entity) handleUpdate() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := NewContext(r)
+		ctx, err := NewContext(r).WithEntityAction(e, Update)
+		if err != nil {
+			ctx.PrintError(w, err, http.StatusForbidden)
+			return
+		}
+
 		vars := mux.Vars(r)
 		encodedKey := vars["encodedKey"]
 

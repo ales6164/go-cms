@@ -11,7 +11,7 @@ type Entity struct {
 	Label     string `json:"label"`     // Only a-Z characters allowed
 	Name      string `json:"name"`      // Only a-Z characters allowed
 	Private   bool   `json:"private"`   // Protects entity with user field - only creator has access
-	Protected bool   `json:"protected"` // Protects entity with password
+	/*Protected bool   `json:"protected"`*/ // Protects entity with password
 	Cache     bool   `json:"cache"`     // Keeps values in memcache - good for categories, translations, ...
 
 	fields map[string]*Field
@@ -19,7 +19,7 @@ type Entity struct {
 
 	// Called on every entity update. If url already exists (and is not the same as the previous url), calls again with failedCount increased by 1
 	// todo: have a separate package for this service instead; with client id and client secret input as well
-	NameFunc     func(providedFieldValue interface{}, oldName string, failedCount int) string `json:"-"`
+	NameFunc     func(providedFieldValue interface{}, oldName string, failedCount int) (string, error) `json:"-"`
 	nameProvider *Field
 
 	requiredFields []*Field
@@ -89,11 +89,11 @@ func (e *Entity) init() (*Entity, error) {
 	}
 
 	// if private, has to have CreatedBy
-	if e.Protected {
+	/*if e.Protected {
 		if _, ok := e.fields[PasswordField.Name]; !ok {
 			return e, errors.New("password protected entity has no password field")
 		}
-	}
+	}*/
 
 	return e, nil
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/dgrijalva/jwt-go"
 	"time"
+	"fmt"
 )
 
 func AuthMiddleware(signingKey []byte) *JWTMiddleware {
@@ -21,18 +22,23 @@ func AuthMiddleware(signingKey []byte) *JWTMiddleware {
 }
 
 type Token struct {
+	User    string `json:"user"`
 	ID      string `json:"id"`
 	Expires int64  `json:"expires"`
+}
+
+func (t *Token) String() string {
+	return fmt.Sprintf(`{"id":%s,"expires":%v}`, t.ID, t.Expires)
 }
 
 var (
 	ErrIllegalAction = errors.New("illegal action")
 )
 
-func (c *Context) NewUserToken(userKey string, userRole Role) error {
+func (c Context) NewUserToken(userKey string, userRole Role) (Context, error) {
 	var err error
 	c.Token, err = newToken(userKey, userRole, c.r.Context().Value("key"))
-	return err
+	return c, err
 }
 
 func newToken(userKey string, userRole Role, privateKey interface{}) (Token, error) {
@@ -58,5 +64,5 @@ func newToken(userKey string, userRole Role, privateKey interface{}) (Token, err
 		return tkn, err
 	}
 
-	return Token{signed, exp}, nil
+	return Token{userKey, signed, exp}, nil
 }
