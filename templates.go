@@ -3,6 +3,7 @@ package cms
 import (
 	"html/template"
 	"net/http"
+	"bytes"
 )
 
 func ParsePage(funcs template.FuncMap, templates ...string) (*template.Template, error) {
@@ -11,6 +12,36 @@ func ParsePage(funcs template.FuncMap, templates ...string) (*template.Template,
 
 func RenderTemplate(w http.ResponseWriter, templ *template.Template, data interface{}) error {
 	return templ.ExecuteTemplate(w, "index", data)
+}
+
+func TemplateHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := NewContext(r).WithBody()
+
+	t, err := template.New("").Funcs(htmlFuncMap).Parse(`{{define "body"}}` + string(ctx.body.body) + "{{end}}")
+	if err != nil {
+		ctx.PrintError(w, err, http.StatusBadRequest)
+		return
+	}
+
+	err = t.ExecuteTemplate(w, "body", view{"items": []string{"one", "two", "three"}})
+	if err != nil {
+		ctx.PrintError(w, err, http.StatusBadRequest)
+	}
+}
+
+func renderTemplate(body string) (string, error) {
+	t, err := template.New("").Funcs(htmlFuncMap).Parse(`{{define "body"}}` + body + "{{end}}")
+	if err != nil {
+		return "", err
+	}
+
+	var doc bytes.Buffer
+	defer doc.Reset()
+	err = t.ExecuteTemplate(&doc, "body", view{"items": []string{"one", "two", "three"}})
+	if err != nil {
+		return "", err
+	}
+	return doc.String(), nil
 }
 
 var htmlFuncMap = template.FuncMap{

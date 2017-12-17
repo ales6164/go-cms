@@ -74,6 +74,15 @@ func (a *API) Handle(p string, e *Entity) *mux.Router {
 	return sub
 }
 
+func (a *API) HandleFunc(p string, f func(w http.ResponseWriter, r *http.Request)) *mux.Router {
+
+	var sub = a.router.PathPrefix(p).Subrouter()
+
+	sub.HandleFunc("", f).Methods(http.MethodPost)
+
+	return sub
+}
+
 func (a *API) Add(es ...*Entity) error {
 	for i, e := range es {
 		if len(e.Name) == 0 {
