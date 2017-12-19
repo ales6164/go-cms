@@ -14,11 +14,9 @@ type Field struct {
 	IsRequired bool   `json:"isRequired"`
 
 	/*	IsReadOnly   bool   `json:"isReadOnly"`*/
-	IsNameProvider bool  `json:"isIDProvider"`
 	/*Unique         bool   `json:"unique"`*/
-	Multiple       bool  `json:"multiple"`
-	NoIndex        bool  `json:"noIndex"`
-	Rules          Rules `json:"rules"`
+	Multiple bool `json:"multiple"`
+	NoIndex  bool `json:"noIndex"`
 
 	isNesting bool // field name is of pattern one.two
 
@@ -46,14 +44,6 @@ type Field struct {
 // todo: make this as a prepared function as Fields property
 func (f *Field) parse(ctx Context, input interface{}) ([]datastore.Property, error) {
 	var list []datastore.Property
-
-	if f.Rules != nil {
-		// if rule is set, check if users rank is sufficient
-		if role, ok := f.Rules[ctx.Scope]; ok && ctx.Rank < Ranks[role] {
-			// users rank is lower - action forbidden
-			return list, ErrForbidden
-		}
-	}
 
 	// Multiple
 	if f.Multiple {
@@ -92,24 +82,25 @@ func (f *Field) parse(ctx Context, input interface{}) ([]datastore.Property, err
 func (f *Field) parseSingleValue(ctx Context, input interface{}) (datastore.Property, error) {
 	var p datastore.Property
 
-	if input == nil && f.IsRequired {
-		return p, fmt.Errorf("field '%s' value is required", f.Name)
-	}
-
-	if len(f.Validate) > 0 {
-		if stringValue, ok := input.(string); ok && !govalidator.Matches(stringValue, f.Validate) {
-			return p, fmt.Errorf("field '%s' value is not valid", f.Name)
+	if input == nil {
+		if f.IsRequired {
+			return p, fmt.Errorf("field '%s' value is required", f.Name)
 		}
-	} else if f.ValidateFunc != nil {
-		if !f.ValidateFunc(input) {
-			return p, fmt.Errorf("field '%s' value is not valid", f.Name)
+	} else {
+		if len(f.Validate) > 0 {
+			if stringValue, ok := input.(string); ok && !govalidator.Matches(stringValue, f.Validate) {
+				return p, fmt.Errorf("field '%s' value is not valid", f.Name)
+			}
+		} else if f.ValidateFunc != nil {
+			if !f.ValidateFunc(input) {
+				return p, fmt.Errorf("field '%s' value is not valid", f.Name)
+			}
 		}
-	}
-
-	if f.TransformFunc != nil {
-		input = f.TransformFunc(input)
-		if err, ok := input.(error); ok {
-			return p, err
+		if f.TransformFunc != nil {
+			input = f.TransformFunc(input)
+			if err, ok := input.(error); ok {
+				return p, err
+			}
 		}
 	}
 

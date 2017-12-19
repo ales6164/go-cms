@@ -1,10 +1,9 @@
 package cms
 
 import (
-	"errors"
 	"github.com/dgrijalva/jwt-go"
 	"time"
-	"fmt"
+	"google.golang.org/appengine/datastore"
 )
 
 func AuthMiddleware(signingKey []byte) *JWTMiddleware {
@@ -21,33 +20,26 @@ func AuthMiddleware(signingKey []byte) *JWTMiddleware {
 	})
 }
 
-type Token struct {
-	User    string `json:"user"`
-	ID      string `json:"id"`
-	Expires int64  `json:"expires"`
-}
-
-func (t *Token) String() string {
-	return fmt.Sprintf(`{"id":%s,"expires":%v}`, t.ID, t.Expires)
-}
-
-var (
-	ErrIllegalAction = errors.New("illegal action")
-)
-
-func (c Context) NewUserToken(userKey string, userRole Role) (Context, error) {
+func (ctx Context) newToken(userKey *datastore.Key, userGroup string, privateKey interface{}) error {
+	var encodedUserKey = userKey.Encode()
 	var err error
-	c.Token, err = newToken(userKey, userRole, c.r.Context().Value("key"))
-	return c, err
-}
 
-func newToken(userKey string, userRole Role, privateKey interface{}) (Token, error) {
-	var tkn Token
-
-	if len(userKey) == 0 {
-		return tkn, ErrIllegalAction
+	ctx.token, err = _token(encodedUserKey, userGroup, privateKey)
+	if err != nil {
+		return err
 	}
 
+	ctx.user = User{
+		userGroup:       userGroup,
+		userKey:         userKey,
+		encodedUserKey:  encodedUserKey,
+		isAuthenticated: true,
+	}
+
+	return nil
+}
+
+func _token(encodedUserKey string, userGroup string, privateKey interface{}) (string, error) {
 	var exp = time.Now().Add(time.Hour * 12).Unix()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"aud": "api",
@@ -55,14 +47,8 @@ func newToken(userKey string, userRole Role, privateKey interface{}) (Token, err
 		"exp": exp,
 		"iat": time.Now().Unix(),
 		"iss": "sdk",
-		"sub": userKey,
-		"rol": userRole,
+		"sub": encodedUserKey,
+		"grp": userGroup,
 	})
-
-	signed, err := token.SignedString(privateKey)
-	if err != nil {
-		return tkn, err
-	}
-
-	return Token{userKey, signed, exp}, nil
+	return token.SignedString(privateKey)
 }

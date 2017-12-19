@@ -8,26 +8,18 @@ import (
 )
 
 type Entity struct {
-	Label     string `json:"label"`     // Only a-Z characters allowed
-	Name      string `json:"name"`      // Only a-Z characters allowed
-	Private   bool   `json:"private"`   // Protects entity with user field - only creator has access
+	Label   string `json:"label"`   // Only a-Z characters allowed
+	Name    string `json:"name"`    // Only a-Z characters allowed
+	Private bool   `json:"private"` // Protects entity with user field - only creator has access
 	/*Protected bool   `json:"protected"`*/ // Protects entity with password
-	Cache     bool   `json:"cache"`     // Keeps values in memcache - good for categories, translations, ...
+	Cache bool `json:"cache"`               // Keeps values in memcache - good for categories, translations, ...
 
 	fields map[string]*Field
 	Fields []*Field `json:"fields"`
 
-	// Called on every entity update. If url already exists (and is not the same as the previous url), calls again with failedCount increased by 1
-	// todo: have a separate package for this service instead; with client id and client secret input as well
-	NameFunc     func(providedFieldValue interface{}, oldName string, failedCount int) (string, error) `json:"-"`
-	nameProvider *Field
-
 	requiredFields []*Field
 
 	indexes map[string]*DocumentDefinition
-
-	// Rules
-	Rules Rules `json:"rules"`
 
 	// Listener
 	// todo: change this a bit
@@ -41,70 +33,35 @@ type Entity struct {
 
 func (e *Entity) init() (*Entity, error) {
 	for _, field := range e.Fields {
-		if len(field.Name) == 0 {
-			panic(errors.New("field name can't be empty"))
-		}
-
-		if field.Name == "id" {
-			panic(errors.New("field name 'id' is reserved and can't be used"))
-		}
-
-		if field.Name == "meta" {
-			panic(errors.New("field name 'meta' is reserved and can't be used"))
-		}
-
-		if field.Name[:1] == "_" {
-			panic(errors.New("field name can't start with an underscore"))
-		}
-
-		if len(strings.Split(field.Name, ".")) > 1 {
-			field.isNesting = true
-		}
 
 		err := e.SetField(field)
 		if err != nil {
 			return e, err
 		}
-
-		if field.IsNameProvider {
-			if e.nameProvider != nil {
-				return e, errors.New("multiple name provider fields detected")
-			}
-			e.nameProvider = field
-		}
 	}
-
-	// if got write rule, then set add, edit and delete rules for that
-	if rule, ok := e.Rules[Write]; ok {
-		e.Rules[Add] = rule
-		e.Rules[Update] = rule
-		e.Rules[Delete] = rule
-	}
-
-	// set default rules
-	for _, scope := range scopes {
-		if _, ok := e.Rules[scope]; !ok {
-			e.Rules[scope] = Admin
-		}
-	}
-
-	// if private, has to have CreatedBy
-	/*if e.Protected {
-		if _, ok := e.fields[PasswordField.Name]; !ok {
-			return e, errors.New("password protected entity has no password field")
-		}
-	}*/
 
 	return e, nil
 }
 
 func (e *Entity) SetField(field *Field) error {
 	if len(field.Name) == 0 {
-		return errors.New("field name can't be empty")
+		panic(errors.New("field name can't be empty"))
 	}
 
-	if field.Name == "id" {
-		return errors.New("field name 'id' is reserved")
+	if field.Name == "meta" || field.Name == "id" {
+		panic(errors.New("field name '" + field.Name + "' already exists"))
+	}
+
+	if field.Name[:1] == "_" {
+		panic(errors.New("field name can't begin with an underscore"))
+	}
+
+	if split := strings.Split(field.Name, "."); len(split) > 1 {
+		if split[0] == "meta" || split[0] == "id" {
+			panic(errors.New("field name '" + field.Name + "' already exists"))
+		}
+
+		field.isNesting = true
 	}
 
 	if e.fields == nil {
@@ -112,62 +69,6 @@ func (e *Entity) SetField(field *Field) error {
 	}
 
 	e.fields[field.Name] = field
-
-	/*if field.ContextFunc != nil {
-		e.preparedData[field] = func(ctx Context, f *Field) interface{} {
-			return f.ContextFunc(ctx)
-		}
-	}*/
-
-	/*if len(field.Validate) > 0 {
-		field.fieldFunc = append(field.fieldFunc, func( v interface{}) (interface{}, error) {
-
-			var matched bool
-			var err error
-
-			switch val := v.(type) {
-			case string:
-				matched, err = regexp.Match(field.Validate, []byte(val))
-				break
-			default:
-				return v, fmt.Errorf(ErrFieldValueNotValid, c.Field.Name)
-			}
-
-			if err != nil {
-				return nil, err
-			}
-			if matched {
-				return v, nil
-			}
-
-			return v, fmt.Errorf(ErrFieldValueNotValid, c.Field.Name)
-		})
-	}
-
-	if field.Validator != nil {
-		field.fieldFunc = append(field.fieldFunc, func(c *ValueContext, v interface{}) (interface{}, error) {
-			if c.Trust == High {
-				return v, nil
-			}
-
-			ok := c.Field.Validator(v)
-			if ok {
-				return v, nil
-			}
-			return v, fmt.Errorf(ErrFieldValueNotValid, c.Field.Name)
-		})
-	}
-
-	if field.TransformFunc != nil {
-		field.fieldFunc = append(field.fieldFunc, field.TransformFunc)
-	}*/
-
-	// if got write rule, then has also add, edit and delete rule
-	if rule, ok := field.Rules[Write]; ok {
-		field.Rules[Add] = rule
-		field.Rules[Update] = rule
-		field.Rules[Delete] = rule
-	}
 
 	return nil
 }

@@ -176,3 +176,8 @@ func (dd *DocumentDefinition) Assemble(id string, data map[string]interface{}) D
 
 	return document
 }
+
+
+func (holder *DataHolder) updateSearchIndex() {
+	
+}

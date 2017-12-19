@@ -3,7 +3,6 @@ package cms
 import (
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/search"
-	"net/http"
 	"net/url"
 	"strconv"
 )
@@ -14,7 +13,7 @@ func (a *SDK) EnableEntitySearchAPI(e *Entity, index *DocumentDefinition, fieldP
 }
 */
 
-func (e *Entity) handleSearch(dd *DocumentDefinition, fieldPosition []string) func(w http.ResponseWriter, r *http.Request) {
+/*func (e *Entity) handleSearch(dd *DocumentDefinition, fieldPosition []string) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := NewContext(r)
 
@@ -30,7 +29,7 @@ func (e *Entity) handleSearch(dd *DocumentDefinition, fieldPosition []string) fu
 			"count":  len(results),
 		})
 	}
-}
+}*/
 
 func indexQuery(ctx context.Context, dd *DocumentDefinition, query url.Values) ([]interface{}, error) {
 	var data []interface{}

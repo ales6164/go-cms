@@ -7,11 +7,11 @@ import (
 
 	"github.com/asaskevich/govalidator"
 	url2 "net/url"
-	"google.golang.org/appengine/user"
+	EngineUser "google.golang.org/appengine/user"
 	"google.golang.org/appengine/datastore"
 	"github.com/gorilla/sessions"
 	"github.com/gorilla/securecookie"
-	"encoding/gob"
+	"golang.org/x/net/context"
 )
 
 var index *template.Template
@@ -24,7 +24,7 @@ var tokenKey = securecookie.GenerateRandomKey(64)
 
 func (a *API) editor() http.Handler {
 	return http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := NewContext(r)
+		ctx := a.NewContext(r)
 
 		var err error
 		var options = map[string]interface{}{}
@@ -46,7 +46,7 @@ func (a *API) editor() http.Handler {
 				delete(session.Values, "count")
 				session.Save(r, w)
 
-				googleLogoutURL, err := user.LogoutURL(ctx.Context, r.URL.Path)
+				googleLogoutURL, err := EngineUser.LogoutURL(ctx.Context, r.URL.Path)
 				if err == nil {
 					http.Redirect(w, r, googleLogoutURL, http.StatusSeeOther)
 				} else {
@@ -58,48 +58,54 @@ func (a *API) editor() http.Handler {
 			}
 		} else {
 			// Not logged in
-			var userData = map[string]interface{}{}
+			var ua UserAccount
+			var userKey *datastore.Key
 
 			// Google Auth
-			googleUser := user.Current(ctx.Context)
+			googleUser := EngineUser.Current(ctx.Context)
 			if googleUser == nil {
-				url, _ := user.LoginURL(ctx.Context, r.URL.Path)
+				url, _ := EngineUser.LoginURL(ctx.Context, r.URL.Path)
 				options["googleLogin"] = url
 			} else {
 				// Authenticated with Google
 				// 1. Try fetching user from datastore OR creating Google user entry in datastore
 				// 2. Create a session
 
-				userData, err = getUser(ctx, googleUser.Email)
-				if err != nil {
-					// User doesn't exist - try adding
+				err = datastore.RunInTransaction(ctx.Context, func(tc context.Context) error {
+					userKey, ua, err = getUser(tc, googleUser.Email)
+					if err != nil {
+						// User doesn't exist - try adding
+						if err == datastore.ErrNoSuchEntity {
 
-					if err == datastore.ErrNoSuchEntity {
-						// user doesn't exist - create new one
+							// user doesn't exist - create new one
+							ua = UserAccount{
+								Email:     googleUser.Email,
+								UserGroup: a.options.DefaultUserGroup,
+							}
 
-						userDataHolder, err := User.Add(ctx, map[string]interface{}{
-							"email": googleUser.Email,
-							"role":  int64(3),
-						})
-						if err == nil {
-							userData = userDataHolder.UnsafeOutput()
-						} else {
-							ctx.PrintError(w, err, http.StatusInternalServerError)
-							return
+							userKey, err = datastore.Put(tc, userKey, ua)
+							return err
 						}
 					}
+					return err
+
+				}, nil)
+				if err != nil {
+					ctx.PrintError(w, err, http.StatusInternalServerError)
+					return
 				}
+
 			}
 
-			if _, ok := userData["email"]; ok {
-				token, err := newToken(googleUser.Email, Admin, tokenKey)
+			if len(ua.Email) > 0 {
+				err := ctx.newToken(userKey, "admin", tokenKey)
 				if err != nil {
 					ctx.PrintError(w, err, http.StatusInternalServerError)
 					return
 				}
 
 				// logged in!
-				onUserLoggedIn(ctx, w, session, token)
+				onUserLoggedIn(ctx, w, session)
 				return
 			} else {
 				var isMethodPost = r.Method == http.MethodPost
@@ -108,10 +114,10 @@ func (a *API) editor() http.Handler {
 
 				if isMethodPost && len(username) > 0 {
 					if govalidator.IsEmail(username) && len(password) > 0 {
-						token, err := login(ctx, username, password)
+						ctx, err := a.login(ctx, username, password)
 						if err == nil {
 							// logged in!
-							onUserLoggedIn(ctx, w, session, token)
+							onUserLoggedIn(ctx, w, session)
 							return
 						} else {
 							options["loginFormError"] = err.Error()
@@ -144,7 +150,7 @@ func (a *API) editor() http.Handler {
 	}))
 }
 
-func onUserLoggedIn(ctx Context, w http.ResponseWriter, session *sessions.Session, token Token) {
+func onUserLoggedIn(ctx Context, w http.ResponseWriter, session *sessions.Session) {
 	// logged in!
 	var continueURL = ctx.r.FormValue("continue")
 	if len(continueURL) == 0 {
@@ -158,8 +164,8 @@ func onUserLoggedIn(ctx Context, w http.ResponseWriter, session *sessions.Sessio
 		}
 	}
 	session.Values["count"] = 1
-	session.Values["token"] = token.ID
-	session.Values["username"] = token.User
+	session.Values["token"] = ctx.token
+	session.Values["username"] = ctx.User().StringID()
 	err := session.Save(ctx.r, w)
 	if err != nil {
 		ctx.PrintError(w, err, http.StatusInternalServerError)
@@ -171,9 +177,6 @@ func onUserLoggedIn(ctx Context, w http.ResponseWriter, session *sessions.Sessio
 
 func init() {
 	var err error
-
-	// to be able to save Token to session
-	gob.Register(Token{})
 
 	index, err = template.New("").Parse(`{{ define "editor" }}
 <!DOCTYPE html>

@@ -16,14 +16,14 @@ import (
 var bucketName string
 var mediaDir string
 
-func MediaUploadHandler(bucket string, dir string) http.Handler {
+func (a *API) MediaUploadHandler(bucket string, dir string) http.Handler {
 	bucketName = bucket
 	mediaDir = dir
-	return http.HandlerFunc(upload)
+	return http.HandlerFunc(a.upload)
 }
 
-func upload(w http.ResponseWriter, r *http.Request) {
-	ctx := NewContext(r)
+func (a *API) upload(w http.ResponseWriter, r *http.Request) {
+	ctx := a.NewContext(r)
 
 	if appengine.IsDevAppServer() {
 		ctx.PrintError(w, errors.New("production server required"), http.StatusInternalServerError)

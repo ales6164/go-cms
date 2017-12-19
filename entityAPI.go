@@ -4,18 +4,55 @@ import (
 	"github.com/gorilla/mux"
 	"net/http"
 	"google.golang.org/appengine/datastore"
+	"golang.org/x/net/context"
+	"google.golang.org/appengine/log"
 )
 
-func (e *Entity) handleGetEntityInfo() func(w http.ResponseWriter, r *http.Request) {
+/*func (e *Entity) handleGetEntityInfo() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := NewContext(r).WithBody()
 		ctx.Print(w, e)
 	}
+}*/
+
+var (
+	FormErrFieldRequired ErrorType = "required"
+)
+
+type FormError struct {
+	errorType ErrorType
+	field     *Field
 }
 
-func (e *Entity) handleGet() func(w http.ResponseWriter, r *http.Request) {
+type APIRequest struct {
+	Entity        string
+	Entry         *datastore.Key
+	Status        string
+	StatusMessage string
+	Scope         string
+
+	Method        string
+	RemoteAddr    string
+	Body          []byte
+	Host          string
+	URL           string
+	UserAgent     string
+	Referer       string
+	ContentLength int64
+	TLSVersion    uint16
+	CipherSuite   uint16
+	Proto         string
+}
+
+type ErrorType string
+
+func (e FormError) Error() string {
+	return "form error"
+}
+
+func (a *API) handleGet(e *Entity) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, err := NewContext(r).WithEntityAction(e, Read)
+		ctx, err := a.NewContext(r).HasPermission(e, Read)
 		if err != nil {
 			ctx.PrintError(w, err, http.StatusForbidden)
 			return
@@ -42,21 +79,21 @@ func (e *Entity) handleGet() func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (e *Entity) handleAdd() func(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleCreate(e *Entity) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, err := NewContext(r).WithEntityAction(e, Add)
+		ctx, err := a.NewContext(r).HasPermission(e, Create)
 		if err != nil {
 			ctx.PrintError(w, err, http.StatusForbidden)
 			return
 		}
 
-		data, err := ParseBody(ctx)
+		holder, err := e.New(ctx).PrepareFromInput()
 		if err != nil {
 			ctx.PrintError(w, err, http.StatusBadRequest)
 			return
 		}
 
-		holder, err := e.Add(ctx, data)
+		holder, err = e.Create(ctx, holder)
 		if err != nil {
 			ctx.PrintError(w, err, http.StatusInternalServerError)
 			return
@@ -68,9 +105,34 @@ func (e *Entity) handleAdd() func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (e *Entity) handleUpdate() func(w http.ResponseWriter, r *http.Request) {
+func (e *Entity) Create(ctx Context, dataHolder *DataHolder) (*DataHolder, error) {
+	var err error
+
+	dataHolder.key = e.NewIncompleteKey(ctx)
+	dataHolder.key, err = datastore.Put(ctx.Context, dataHolder.key, dataHolder)
+	if err != nil {
+		dataHolder.request.Status = "error"
+		dataHolder.request.StatusMessage = err.Error()
+	} else {
+		dataHolder.request.Status = "ok"
+	}
+
+	var requestKey = datastore.NewIncompleteKey(ctx.Context, "_APIRequest", dataHolder.key)
+	dataHolder.request.Scope = string(Create)
+	dataHolder.request.Entity = e.Name
+	dataHolder.request.Entry = dataHolder.key
+
+	_, reqErr := datastore.Put(ctx.Context, requestKey, dataHolder.request)
+	if reqErr != nil {
+		log.Criticalf(ctx.Context, "failure saving _APIRequest error: %s", reqErr.Error())
+	}
+
+	return dataHolder, err
+}
+
+func (a *API) handleUpdate(e *Entity) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, err := NewContext(r).WithEntityAction(e, Update)
+		ctx, err := a.NewContext(r).HasPermission(e, Update)
 		if err != nil {
 			ctx.PrintError(w, err, http.StatusForbidden)
 			return
@@ -79,13 +141,19 @@ func (e *Entity) handleUpdate() func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		encodedKey := vars["encodedKey"]
 
-		data, err := ParseBody(ctx)
+		holder, err := e.New(ctx).PrepareFromInput()
 		if err != nil {
 			ctx.PrintError(w, err, http.StatusBadRequest)
 			return
 		}
 
-		holder, err := e.Update(ctx, encodedKey, "", data)
+		holder.key, err = datastore.DecodeKey(encodedKey)
+		if err != nil {
+			ctx.PrintError(w, err, http.StatusBadRequest)
+			return
+		}
+
+		holder, err = e.Update(ctx, holder)
 		if err != nil {
 			ctx.PrintError(w, err, http.StatusInternalServerError)
 			return
@@ -97,6 +165,48 @@ func (e *Entity) handleUpdate() func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *DataHolder) updateSearchIndex() {
+func (e *Entity) Update(ctx Context, dataHolder *DataHolder) (*DataHolder, error) {
+	var err error
+	err = datastore.RunInTransaction(ctx.Context, func(tc context.Context) error {
 
+		err := datastore.Get(tc, dataHolder.key, dataHolder)
+		if err != nil {
+			return err
+		}
+
+		var oldVersion = e.New(ctx)
+		oldVersion.key = dataHolder.key
+		oldVersion.loadedStoredData = dataHolder.loadedStoredData
+		oldVersion.isOldVersion = true
+
+		// create a new key
+		var newKey = e.NewIncompleteKey(ctx)
+
+		var keys = []*datastore.Key{newKey, oldVersion.key}
+		var holders = []*DataHolder{dataHolder, oldVersion}
+
+		keys, err = datastore.PutMulti(ctx.Context, keys, holders)
+		if err != nil {
+			dataHolder.request.Status = "error"
+			dataHolder.request.StatusMessage = err.Error()
+		} else {
+			dataHolder.request.Status = "ok"
+		}
+
+		dataHolder.key = keys[0]
+
+		var requestKey = datastore.NewIncompleteKey(ctx.Context, "_APIRequest", dataHolder.key)
+		dataHolder.request.Scope = string(Update)
+		dataHolder.request.Entity = e.Name
+		dataHolder.request.Entry = dataHolder.key
+
+		_, reqErr := datastore.Put(ctx.Context, requestKey, dataHolder.request)
+		if reqErr != nil {
+			log.Criticalf(ctx.Context, "failure saving _APIRequest error: %s", reqErr.Error())
+		}
+
+		return err
+	}, &datastore.TransactionOptions{XG: true})
+
+	return dataHolder, err
 }

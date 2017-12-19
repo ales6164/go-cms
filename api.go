@@ -16,9 +16,20 @@ type API struct {
 	EditorHandler http.Handler
 	middleware    *JWTMiddleware
 	sessionStore  *sessions.CookieStore
+	signingKey    []byte
 
-	entities       []*Entity
+	entities        []*Entity
 	handledEntities []*Entity
+
+	options *Options
+}
+
+type Options struct {
+	PermitUserRegistration bool   // default: false
+	DefaultUserGroup       string // default: "subscriber"
+	Permissions
+
+	permissions permissions // prepared
 }
 
 type Server struct {
@@ -40,18 +51,29 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	s.h.ServeHTTP(w, req)
 }
 
-var signingKey []byte
+/*var signingKey []byte*/
 
-func NewAPI() *API {
-	signingKey = securecookie.GenerateRandomKey(64)
+func NewAPI(options *Options) *API {
+	if options != nil {
+		options.permissions = options.Permissions.parse()
+	} else {
+		options = &Options{}
+	}
+
+	if len(options.DefaultUserGroup) == 0 {
+		options.DefaultUserGroup = "subscriber"
+	}
+
 	var r = mux.NewRouter()
 
 	a := &API{
 		router:     r,
-		middleware: AuthMiddleware(signingKey),
+		options:    options,
+		signingKey: securecookie.GenerateRandomKey(64),
 		Handler:    &Server{r},
 	}
 
+	a.middleware = AuthMiddleware(a.signingKey)
 	a.EditorHandler = a.editor()
 
 	return a
@@ -61,11 +83,11 @@ func (a *API) Handle(p string, e *Entity) *mux.Router {
 
 	var sub = a.router.PathPrefix(p).Subrouter()
 
-	sub.HandleFunc("/{encodedKey}", e.handleGet()).Methods(http.MethodGet)
-	sub.HandleFunc("/{encodedKey}", e.handleUpdate()).Methods(http.MethodPut)
-	sub.HandleFunc("", e.handleAdd()).Methods(http.MethodPost)
+	sub.HandleFunc("/{encodedKey}", a.handleGet(e)).Methods(http.MethodGet)
+	sub.HandleFunc("/{encodedKey}", a.handleUpdate(e)).Methods(http.MethodPut)
+	sub.HandleFunc("", a.handleCreate(e)).Methods(http.MethodPost)
 	sub.HandleFunc("", func(w http.ResponseWriter, r *http.Request) {
-		ctx := NewContext(r)
+		ctx := a.NewContext(r)
 		ctx.Print(w, "Hello "+e.Name)
 	}).Methods(http.MethodGet)
 

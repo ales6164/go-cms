@@ -14,8 +14,8 @@ func RenderTemplate(w http.ResponseWriter, templ *template.Template, data interf
 	return templ.ExecuteTemplate(w, "index", data)
 }
 
-func TemplateHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := NewContext(r).WithBody()
+func (a *API) TemplateHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := a.NewContext(r).WithBody()
 
 	t, err := template.New("").Funcs(htmlFuncMap).Parse(`{{define "body"}}` + string(ctx.body.body) + "{{end}}")
 	if err != nil {

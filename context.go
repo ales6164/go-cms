@@ -12,20 +12,23 @@ import (
 )
 
 type Context struct {
+	api *API
 	r   *http.Request
 	err error
 
 	Context context.Context
 
-	User  string // encoded User key
-	Role  Role
-	Rank  int
-	Scope Scope
-
-	IsAuthenticated bool
-	Token           Token
+	user  User
+	token string
 
 	body *Body
+}
+
+type User struct {
+	userGroup       string
+	encodedUserKey  string
+	userKey         *datastore.Key
+	isAuthenticated bool
 }
 
 type Body struct {
@@ -33,82 +36,68 @@ type Body struct {
 	body        []byte
 }
 
-func NewContext(r *http.Request) Context {
-	var scope Scope
-	switch r.Method {
-	case "GET":
-		scope = Read
-		break
-	case "POST":
-		scope = Add
-		break
-	case "PUT":
-		scope = Update
-		break
-	case "DELETE":
-		scope = Delete
-		break
-	default:
-		return Context{}
-	}
+func (ctx Context) User() *datastore.Key {
+	return ctx.user.userKey
+}
+func (ctx Context) UserGroup() string {
+	return ctx.user.userGroup
+}
+func (ctx Context) IsAuthenticated() bool {
+	return ctx.user.isAuthenticated
+}
+func (ctx Context) Token() string {
+	return ctx.token
+}
 
-	isAuthenticated, userRole, userKey, renewedToken, err := getReqUser(r)
+func (a *API) NewContext(r *http.Request) Context {
+	user, renewedToken := a.getReqUser(r)
 	return Context{
-		r:               r,
-		Context:         appengine.NewContext(r),
-		IsAuthenticated: isAuthenticated,
-		Role:            userRole,
-		Scope:           scope,
-		Rank:            Ranks[userRole],
-		User:            userKey,
-		Token:           renewedToken,
-		err:             err,
-		body:            &Body{hasReadBody: false},
+		r:       r,
+		Context: appengine.NewContext(r),
+		user:    user,
+		token:   renewedToken,
+		body:    &Body{hasReadBody: false},
 	}
 }
 
-func (c Context) WithBody() Context {
-	if !c.body.hasReadBody {
-		c.body.body, _ = ioutil.ReadAll(c.r.Body)
-		c.r.Body.Close()
-		c.body.hasReadBody = true
+func (ctx Context) WithBody() Context {
+	if !ctx.body.hasReadBody {
+		ctx.body.body, _ = ioutil.ReadAll(ctx.r.Body)
+		ctx.r.Body.Close()
+		ctx.body.hasReadBody = true
 	}
-	return c
+	return ctx
 }
 
-func (c Context) WithEntityAction(e *Entity, s Scope) (Context, error) {
-	if c.Role == Admin {
-		return c, nil
-	}
-	if e.Rules != nil {
-		// if rule is set, check if users rank is sufficient
-		if role, ok := e.Rules[c.Scope]; ok && c.Rank >= Ranks[role] {
-			// users has a sufficient rank - action allowed
-			return c, nil
+// return true if userKey matches with authenticated user
+func (ctx Context) UserMatches(userKey interface{}) bool {
+	if ctx.IsAuthenticated() {
+
+		if userKeyString, ok := userKey.(string); ok {
+			var err error
+			userKey, err = datastore.DecodeKey(userKeyString)
+			if err != nil {
+				return false
+			}
 		}
 
-	}
-	return c, ErrForbidden
-}
-
-// return true if userKey matches with userKey in token
-func (c Context) UserMatches(userKey interface{}) bool {
-	if userKeyString, ok := userKey.(string); ok {
-		return userKeyString == c.User
-	} else if userKeyDs, ok := userKey.(*datastore.Key); ok {
-		if key, err := datastore.DecodeKey(c.User); err == nil {
-			return userKeyDs.StringID() == key.StringID()
+		if userKeyDs, ok := userKey.(*datastore.Key); ok {
+			return userKeyDs.Equal(ctx.user.userKey)
 		}
 	}
 	return false
 }
 
-func getReqUser(r *http.Request) (bool, Role, string, Token, error) {
+func (a *API) getReqUser(r *http.Request) (User, string) {
+	var user = User{
+		userGroup: "public",
+	}
+	var userGroup string
+	var encodedUserKey string
 	var isAuthenticated bool
-	var userRole Role = "guest"
-	var userKey string
-	var renewedToken Token
-	var err error
+
+	var isExpired bool
+	var signedRenewedToken string
 
 	tkn := gctx.Get(r, "user")
 
@@ -116,31 +105,48 @@ func getReqUser(r *http.Request) (bool, Role, string, Token, error) {
 		token := tkn.(*jwt.Token)
 
 		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-			err = claims.Valid()
-			if err == nil {
-				var username string
-				if username, ok = claims["sub"].(string); ok {
-					if userRole, ok := claims["rol"].(int); ok {
-						return true, Role(userRole), username, renewedToken, err
-					}
-				}
-				return isAuthenticated, userRole, userKey, renewedToken, ErrIllegalAction
+
+			if err := claims.Valid(); err == nil {
+				userGroup = claims["grp"].(string)
+				encodedUserKey = claims["sub"].(string)
+				isAuthenticated = true
 			} else if exp, ok := claims["exp"].(float64); ok {
 				// check if it's less than a week old
 				if time.Now().Unix()-int64(exp) < time.Now().Add(time.Hour * 24 * 7).Unix() {
-					if userKey, ok := claims["sub"].(string); ok {
-						if userRole, ok := claims["rol"].(int); ok {
-							renewedToken, err = newToken(userKey, Role(userRole), r.Context().Value("key"))
-							if err != nil {
-								return isAuthenticated, Role(userRole), userKey, renewedToken, err
-							}
-							return true, Role(userRole), userKey, renewedToken, err
-						}
+					userGroup = claims["grp"].(string)
+					encodedUserKey = claims["sub"].(string)
+					isAuthenticated = true
+					isExpired = true
+				}
+			}
+
+			// check if everything seems alright
+			if isAuthenticated && len(encodedUserKey) > 0 && len(userGroup) > 0 {
+
+				// issue a new token
+				if isExpired {
+					var err error
+					signedRenewedToken, err = _token(encodedUserKey, userGroup, a.signingKey)
+					if err != nil {
+						return user, signedRenewedToken
 					}
 				}
+
+				// decode user key for later use
+				userKey, err := datastore.DecodeKey(encodedUserKey)
+				if err != nil {
+					return user, signedRenewedToken
+				}
+
+				return User{
+					userGroup:       userGroup,
+					encodedUserKey:  encodedUserKey,
+					userKey:         userKey,
+					isAuthenticated: isAuthenticated,
+				}, signedRenewedToken
 			}
 		}
 	}
 
-	return isAuthenticated, userRole, userKey, renewedToken, err
+	return user, signedRenewedToken
 }

@@ -5,22 +5,8 @@ import (
 	"reflect"
 	"fmt"
 	"google.golang.org/appengine/datastore"
-	"golang.org/x/net/context"
-	"errors"
-	"time"
+	"strings"
 )
-
-func ParseBody(c Context) (map[string]interface{}, error) {
-	c = c.WithBody()
-
-	var t map[string]interface{}
-	err := json.Unmarshal(c.body.body, &t)
-	if err != nil {
-		return nil, err
-	}
-
-	return t, nil
-}
 
 func sth() {
 	data := `{"name":"Annabella", "age": 22, "hobbies": ["climbing", "playing tennis", 444], "sister": {"name": "Britney"}}`
@@ -48,169 +34,131 @@ func sth() {
 	fmt.Println(t)
 }
 
-var NameFuncMaxRetries = 5
+func (holder *DataHolder) PrepareFromInput() (*DataHolder, error) {
+	var ctx = holder.context.WithBody()
 
-// todo: IDFunc
-func (e *Entity) Add(ctx Context, m map[string]interface{}) (*DataHolder, error) {
-
-	dataHolder, err := e.New(ctx).Prepare(m)
+	var m map[string]interface{}
+	err := json.Unmarshal(ctx.body.body, &m)
 	if err != nil {
-		return dataHolder, err
+		return holder, err
 	}
 
-	err = datastore.RunInTransaction(ctx.Context, func(tc context.Context) error {
+	// APIRequest
+	holder.request = &APIRequest{
+		RemoteAddr:    ctx.r.RemoteAddr,
+		Method:        ctx.r.Method,
+		Host:          ctx.r.Host,
+		UserAgent:     ctx.r.UserAgent(),
+		Referer:       ctx.r.Referer(),
+		ContentLength: ctx.r.ContentLength,
+		Proto:         ctx.r.Proto,
+		Body:          ctx.body.body,
+	}
 
-		var key *datastore.Key
+	if ctx.r.TLS != nil {
+		holder.request.TLSVersion = ctx.r.TLS.Version
+		holder.request.TLSVersion = ctx.r.TLS.CipherSuite
+	}
 
-		if e.NameFunc != nil {
-			if e.nameProvider != nil && dataHolder.nameProviderValue == nil {
-				return fmt.Errorf("name value is not provided from '%s' field", e.nameProvider.Name)
-			}
+	for _, f := range holder.Entity.Fields {
 
-			var tempEnt datastore.PropertyList
+		// check for input
+		if value, ok := m[f.Name]; ok {
 
-			for i := 1; i <= NameFuncMaxRetries; i++ {
-				var keyName, err = e.NameFunc(dataHolder.nameProviderValue, "", i-1)
-				if err != nil {
-					return err
-				}
-				if len(keyName) == 0 {
-					return errors.New("name can't be empty")
-				}
-				key = e.NewKey(ctx, keyName)
-				err = datastore.Get(tc, key, &tempEnt)
-				if err == nil || err != datastore.ErrNoSuchEntity {
-					if i == NameFuncMaxRetries {
-						return fmt.Errorf("name function reached max retries with no result")
-					}
-					continue
-				}
-				dataHolder.SetProperty(datastore.Property{
-					Name:  "meta.name",
-					Value: keyName,
-				})
-				break
-			}
-		} else {
-			key = e.NewIncompleteKey(ctx)
-		}
-
-		var now = time.Now()
-		dataHolder.SetProperty(datastore.Property{
-			Name:  "meta.createdAt",
-			Value: now,
-		})
-		dataHolder.SetProperty(datastore.Property{
-			Name:  "meta.updatedAt",
-			Value: now,
-		})
-		if ctx.IsAuthenticated && len(ctx.User) > 0 {
-			createdBy, err := datastore.DecodeKey(ctx.User)
+			props, err := f.parse(holder.context, value)
 			if err != nil {
-				return errors.New("error decoding user key")
+				return holder, err
 			}
-			dataHolder.SetProperty(datastore.Property{
-				Name:  "meta.createdBy",
-				Value: createdBy,
-			})
+
+			holder.preparedInputData[f] = props
+		} else if ok, err := holder.parseNested(f, m); ok {
+			// parse if input is in fieldName.childFieldName format
+
+			if err != nil {
+				return holder, err
+			}
 		}
+	}
 
-		dataHolder.key, err = datastore.Put(tc, key, dataHolder)
-
-		return err
-	}, &datastore.TransactionOptions{XG: true})
-
-	return dataHolder, err
+	return holder, nil
 }
 
-func (e *Entity) Update(ctx Context, id string, name string, m map[string]interface{}) (*DataHolder, error) {
-	var key *datastore.Key
-	var err error
+func (holder *DataHolder) parseNested(f *Field, m map[string]interface{}) (bool, error) {
+	names := strings.Split(f.Name, ".")
 
-	if len(id) > 0 {
-		key, err = datastore.DecodeKey(id)
-		if err != nil {
-			return nil, err
+	if _, ok := m[names[0]]; ok {
+
+		var endValue = m[names[0]]
+		for i := 1; i < len(names); i++ {
+			if nestedMap, ok := endValue.(map[string]interface{}); ok {
+				endValue = nestedMap[names[i]]
+			} else {
+				return false, nil
+			}
 		}
-	} else if len(name) > 0 {
-		key = e.NewKey(ctx, name)
+
+		props, err := f.parse(holder.context, endValue)
+		if err != nil {
+			return true, err
+		}
+
+		holder.preparedInputData[f] = props
+
+		return true, nil
+	}
+
+	return false, nil
+}
+
+/*func (holder *DataHolder) AppendProperty(prop datastore.Property) {
+	holder.preparedInputData[prop.Name] = appendProperty(holder.preparedInputData[prop.Name], prop)
+}
+
+func (holder *DataHolder) SetProperty(prop datastore.Property) {
+	holder.preparedInputData[prop.Name] = []datastore.Property{}
+	holder.preparedInputData[prop.Name] = appendProperty(holder.preparedInputData[prop.Name], prop)
+}*/
+
+// appends value
+func (holder *DataHolder) appendValue(dst interface{}, field *Field, value interface{}, multiple bool, lookup bool) interface{} {
+	if lookup && field != nil && field.Source != nil {
+		if key, ok := value.(*datastore.Key); ok {
+			var dataHolder = holder.Entity.New(holder.context)
+			dataHolder.key = key
+			datastore.Get(holder.context.Context, key, dataHolder)
+			value = dataHolder.Output(holder.context, lookup)
+		}
+	}
+
+	if multiple {
+		if dst == nil {
+			dst = []interface{}{}
+		}
+
+		dst = append(dst.([]interface{}), value)
 	} else {
-		return nil, errors.New("no id defined")
+		dst = value
+	}
+	return dst
+}
+
+// appends property to dst; it can return a flat object or structured
+func (holder *DataHolder) appendPropertyValue(dst map[string]interface{}, prop datastore.Property, field *Field, lookup bool) map[string]interface{} {
+
+	names := strings.Split(prop.Name, ".")
+	if len(names) > 1 {
+		prop.Name = strings.Join(names[1:], ".")
+		if _, ok := dst[names[0]].(map[string]interface{}); !ok {
+			dst[names[0]] = map[string]interface{}{}
+		}
+		dst[names[0]] = holder.appendPropertyValue(dst[names[0]].(map[string]interface{}), prop, field, lookup)
+	} else {
+		dst[names[0]] = holder.appendValue(dst[names[0]], field, prop.Value, prop.Multiple, lookup)
 	}
 
-	dataHolder, err := e.New(ctx).Prepare(m)
-	if err != nil {
-		return dataHolder, errors.New("prepare: " + err.Error())
-	}
+	return dst
+}
 
-	err = datastore.RunInTransaction(ctx.Context, func(tc context.Context) error {
-		var newKey *datastore.Key // could also update key if provided with new name
-
-		err := datastore.Get(tc, key, dataHolder)
-		if err != nil {
-			return err
-		}
-
-		if e.NameFunc != nil && e.nameProvider != nil && dataHolder.nameProviderValue != nil {
-			var tempEnt datastore.PropertyList
-
-			for i := 1; i <= NameFuncMaxRetries; i++ {
-				var keyName, err = e.NameFunc(dataHolder.nameProviderValue, key.StringID(), i)
-				if err != nil {
-					return err
-				}
-				if len(keyName) == 0 {
-					return errors.New("name can't be empty")
-				}
-
-				// skip check if new name matches old
-				if key.StringID() != keyName {
-					newKey = e.NewKey(ctx, keyName)
-					err := datastore.Get(tc, newKey, &tempEnt)
-					if err == nil || err != datastore.ErrNoSuchEntity {
-						if i == NameFuncMaxRetries {
-							return fmt.Errorf("name function reached max retries with not result")
-						}
-						continue
-					}
-				}
-
-				dataHolder.SetProperty(datastore.Property{
-					Name:  "meta.name",
-					Value: keyName,
-				})
-				break
-			}
-
-			// delete old entry
-			err = datastore.Delete(tc, key)
-			if err != nil {
-				return err
-			}
-
-			key = newKey
-		}
-
-		var now = time.Now()
-		dataHolder.SetProperty(datastore.Property{
-			Name:  "meta.updatedAt",
-			Value: now,
-		})
-		if ctx.IsAuthenticated && len(ctx.User) > 0 {
-			createdBy, err := datastore.DecodeKey(ctx.User)
-			if err != nil {
-				return errors.New("error decoding user key")
-			}
-			dataHolder.SetProperty(datastore.Property{
-				Name:  "meta.createdBy",
-				Value: createdBy,
-			})
-		}
-
-		dataHolder.key, err = datastore.Put(tc, key, dataHolder)
-
-		return err
-	}, &datastore.TransactionOptions{XG: true})
-
-	return dataHolder, err
+func appendProperty(field []datastore.Property, prop datastore.Property) []datastore.Property {
+	return append(field, prop)
 }
