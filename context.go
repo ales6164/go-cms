@@ -55,6 +55,7 @@ func (a *API) NewContext(r *http.Request) Context {
 		r:       r,
 		Context: appengine.NewContext(r),
 		user:    user,
+		api:     a,
 		token:   renewedToken,
 		body:    &Body{hasReadBody: false},
 	}

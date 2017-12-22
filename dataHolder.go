@@ -49,6 +49,7 @@ func (holder *DataHolder) Output(ctx Context, lookup bool) map[string]interface{
 
 func (holder *DataHolder) Load(ps []datastore.Property) error {
 	holder.hasLoadedStoredData = true
+	holder.savedData = ps
 	for _, prop := range ps {
 		holder.loadedStoredData[prop.Name] = appendProperty(holder.loadedStoredData[prop.Name], prop)
 	}
@@ -58,66 +59,97 @@ func (holder *DataHolder) Load(ps []datastore.Property) error {
 func (holder *DataHolder) Save() ([]datastore.Property, error) {
 	var ps []datastore.Property
 
-	if holder.isOldVersion {
-		holder.loadedStoredData["meta.status"] = []datastore.Property{{
-			Name:  "meta.status",
-			Value: nil,
-		}}
+	holder.savedData = []datastore.Property{}
 
-		for _, psArr := range holder.loadedStoredData {
-			ps = append(holder.savedData, psArr...)
+	// check if required fields are there
+	for _, field := range holder.Entity.Fields {
+		var inputProperties = holder.preparedInputData[field]
+		var loadedProperties = holder.loadedStoredData[field.Name]
+
+		if len(inputProperties) != 0 {
+			holder.savedData = append(holder.savedData, inputProperties...)
+		} else if len(loadedProperties) != 0 {
+			holder.savedData = append(holder.savedData, loadedProperties...)
+		} else if field.IsRequired {
+			return nil, FormError{FormErrFieldRequired, field}
+		}
+
+	}
+
+	// set meta tags
+	var now = time.Now()
+	holder.savedData = append(holder.savedData, datastore.Property{
+		Name:  "meta.updatedAt",
+		Value: now,
+	})
+	holder.savedData = append(holder.savedData, datastore.Property{
+		Name:  "meta.status",
+		Value: "active",
+	})
+	if holder.hasLoadedStoredData {
+		if metaCreatedAt, ok := holder.loadedStoredData["meta.createdAt"]; ok {
+			holder.savedData = append(holder.savedData, metaCreatedAt[0])
+		}
+		if metaCreatedBy, ok := holder.loadedStoredData["meta.createdBy"]; ok {
+			holder.savedData = append(holder.savedData, metaCreatedBy[0])
+		}
+		if metaVersion, ok := holder.loadedStoredData["meta.version"]; ok {
+			var version = metaVersion[0]
+			version.Value = version.Value.(int64) + 1
+			holder.savedData = append(holder.savedData, version)
 		}
 	} else {
-		// check if required fields are there
-		for _, field := range holder.Entity.Fields {
-			var inputProperties = holder.preparedInputData[field]
-			var loadedProperties = holder.loadedStoredData[field.Name]
-
-			if len(inputProperties) != 0 {
-				holder.savedData = append(holder.savedData, inputProperties...)
-			} else if len(loadedProperties) != 0 {
-				holder.savedData = append(holder.savedData, loadedProperties...)
-			} else if field.IsRequired {
-				return nil, FormError{FormErrFieldRequired, field}
-			}
-
-		}
-
-		// set meta tags
-		var now = time.Now()
 		holder.savedData = append(holder.savedData, datastore.Property{
-			Name:  "meta.updatedAt",
+			Name:  "meta.createdAt",
 			Value: now,
 		})
 		holder.savedData = append(holder.savedData, datastore.Property{
-			Name:  "meta.status",
-			Value: "active",
+			Name:  "meta.createdBy",
+			Value: holder.context.User(),
 		})
-		if holder.hasLoadedStoredData {
-			if metaCreatedAt, ok := holder.loadedStoredData["meta.createdAt"]; ok {
-				holder.savedData = append(holder.savedData, metaCreatedAt[0])
-			}
-			if metaCreatedBy, ok := holder.loadedStoredData["meta.createdBy"]; ok {
-				holder.savedData = append(holder.savedData, metaCreatedBy[0])
-			}
-			if metaVersion, ok := holder.loadedStoredData["meta.version"]; ok {
-				metaVersion[0].Value = metaVersion[0].Value.(int64) + 1
-				holder.savedData = append(holder.savedData, metaVersion[0])
-			}
-		} else {
-			holder.savedData = append(holder.savedData, datastore.Property{
-				Name:  "meta.version",
-				Value: int64(0),
-			})
-		}
-		if holder.context.IsAuthenticated() {
-			holder.savedData = append(holder.savedData, datastore.Property{
-				Name:  "meta.updatedBy",
-				Value: holder.context.User(),
-			})
-		}
+		holder.savedData = append(holder.savedData, datastore.Property{
+			Name:  "meta.version",
+			Value: int64(0),
+		})
+	}
 
-		ps = holder.savedData
+	holder.savedData = append(holder.savedData, datastore.Property{
+		Name:  "meta.updatedBy",
+		Value: holder.context.User(),
+	})
+
+	ps = holder.savedData
+
+	return ps, nil
+}
+
+type DataHolderOld struct {
+	data *DataHolder
+	key  *datastore.Key
+}
+
+func (holder *DataHolder) OldHolder(replacementKey *datastore.Key) *DataHolderOld {
+	var old = &DataHolderOld{
+		data: holder,
+		key:  replacementKey,
+	}
+	return old
+}
+
+func (h *DataHolderOld) Load(ps []datastore.Property) error {
+	return nil
+}
+
+func (h *DataHolderOld) Save() ([]datastore.Property, error) {
+	var ps []datastore.Property
+
+	h.data.loadedStoredData["meta.status"] = []datastore.Property{{
+		Name:  "meta.status",
+		Value: nil,
+	}}
+
+	for _, props := range h.data.loadedStoredData {
+		ps = append(ps, props...)
 	}
 
 	return ps, nil

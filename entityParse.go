@@ -48,6 +48,7 @@ func (holder *DataHolder) PrepareFromInput() (*DataHolder, error) {
 		RemoteAddr:    ctx.r.RemoteAddr,
 		Method:        ctx.r.Method,
 		Host:          ctx.r.Host,
+		Path:          ctx.r.URL.EscapedPath(),
 		UserAgent:     ctx.r.UserAgent(),
 		Referer:       ctx.r.Referer(),
 		ContentLength: ctx.r.ContentLength,
@@ -56,8 +57,8 @@ func (holder *DataHolder) PrepareFromInput() (*DataHolder, error) {
 	}
 
 	if ctx.r.TLS != nil {
-		holder.request.TLSVersion = ctx.r.TLS.Version
-		holder.request.TLSVersion = ctx.r.TLS.CipherSuite
+		holder.request.TLSVersion = int16(ctx.r.TLS.Version)
+		holder.request.TLSVersion = int16(ctx.r.TLS.CipherSuite)
 	}
 
 	for _, f := range holder.Entity.Fields {

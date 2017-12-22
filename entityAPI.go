@@ -26,22 +26,22 @@ type FormError struct {
 
 type APIRequest struct {
 	Entity        string
-	Entry         *datastore.Key
+	Entry         *datastore.Key `datastore:",noindex"`
 	Status        string
-	StatusMessage string
+	StatusMessage string         `datastore:",noindex"`
 	Scope         string
 
-	Method        string
+	Method        string `datastore:",noindex"`
 	RemoteAddr    string
-	Body          []byte
-	Host          string
-	URL           string
-	UserAgent     string
-	Referer       string
-	ContentLength int64
-	TLSVersion    uint16
-	CipherSuite   uint16
-	Proto         string
+	Body          []byte `datastore:",noindex"`
+	Host          string `datastore:",noindex"`
+	Path          string `datastore:",noindex"`
+	UserAgent     string `datastore:",noindex"`
+	Referer       string `datastore:",noindex"`
+	ContentLength int64  `datastore:",noindex"`
+	TLSVersion    int16  `datastore:",noindex"`
+	CipherSuite   int16  `datastore:",noindex"`
+	Proto         string `datastore:",noindex"`
 }
 
 type ErrorType string
@@ -108,7 +108,7 @@ func (a *API) handleCreate(e *Entity) func(w http.ResponseWriter, r *http.Reques
 func (e *Entity) Create(ctx Context, dataHolder *DataHolder) (*DataHolder, error) {
 	var err error
 
-	dataHolder.key = e.NewIncompleteKey(ctx)
+	dataHolder.key = e.NewIncompleteKey(ctx, nil)
 	dataHolder.key, err = datastore.Put(ctx.Context, dataHolder.key, dataHolder)
 	if err != nil {
 		dataHolder.request.Status = "error"
@@ -174,16 +174,11 @@ func (e *Entity) Update(ctx Context, dataHolder *DataHolder) (*DataHolder, error
 			return err
 		}
 
-		var oldVersion = e.New(ctx)
-		oldVersion.key = dataHolder.key
-		oldVersion.loadedStoredData = dataHolder.loadedStoredData
-		oldVersion.isOldVersion = true
+		var replacementKey = dataHolder.Entity.NewIncompleteKey(ctx, dataHolder.key)
+		var oldHolder = dataHolder.OldHolder(replacementKey)
 
-		// create a new key
-		var newKey = e.NewIncompleteKey(ctx)
-
-		var keys = []*datastore.Key{newKey, oldVersion.key}
-		var holders = []*DataHolder{dataHolder, oldVersion}
+		var keys = []*datastore.Key{replacementKey, dataHolder.key}
+		var holders = []interface{}{oldHolder, dataHolder}
 
 		keys, err = datastore.PutMulti(ctx.Context, keys, holders)
 		if err != nil {
@@ -192,8 +187,6 @@ func (e *Entity) Update(ctx Context, dataHolder *DataHolder) (*DataHolder, error
 		} else {
 			dataHolder.request.Status = "ok"
 		}
-
-		dataHolder.key = keys[0]
 
 		var requestKey = datastore.NewIncompleteKey(ctx.Context, "_APIRequest", dataHolder.key)
 		dataHolder.request.Scope = string(Update)

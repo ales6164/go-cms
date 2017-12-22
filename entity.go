@@ -109,8 +109,8 @@ var (
 	ErrKeyNameIdInvalidType = errors.New("key nameId invalid type (only string/int64)")
 )
 
-func (e *Entity) NewIncompleteKey(c Context) *datastore.Key {
-	return datastore.NewIncompleteKey(c.Context, e.Name, nil)
+func (e *Entity) NewIncompleteKey(c Context, parent *datastore.Key) *datastore.Key {
+	return datastore.NewIncompleteKey(c.Context, e.Name, parent)
 }
 
 // Gets appengine context and datastore key with optional namespace. It doesn't fail if request is not authenticated.
