@@ -4,26 +4,97 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 )
-
-func getPath(base string, file string) (string, string) {
-	if file[:2] == ".." {
-		file = file[1:]
-	}
-
-	newPath := path.Join(base, path.Clean(file))
-
-	return path.Dir(newPath), newPath
-}
 
 type view map[string]interface{}
 
-func NewPageIndex(basePath string, indexPath string) string {
-	basePath = path.Clean(basePath)
+type Site struct {
+	*SiteOptions
+	/*Pages   *template.Template*/
+	Index *goquery.Document
 
-	basePath, indexPath = getPath(basePath, indexPath)
+	Pages map[string]*Page
+}
+type SiteOptions struct {
+	Bucket  string
+	BaseDir string
+	Routers []*Router
+}
+type Page struct {
+	Document *goquery.Document
+	Title    string
+	Body     string
+}
+type Router struct {
+	OutletSelector string
+	Handler        Handler
+}
+type Handler map[string]string
 
-	indexFile, err := os.Open(indexPath)
+func NewSite(opt *SiteOptions) *Site {
+	// 1. Parse and render pages
+	// 2. Save pages to bucket
+	var site = &Site{
+		SiteOptions: opt,
+		Pages:       map[string]*Page{},
+	}
+
+	// Read index.html and query for HTML imports
+	var indexPath = path.Join(opt.BaseDir, "index.html")
+	site.Index = site.parseFile(indexPath)
+
+	// Parse pages
+	/*var err error
+	site.Pages, err = template.New("").Funcs(htmlFuncMap).ParseGlob(path.Join(opt.BaseDir, "/pages/*.html"))
+	if err != nil {
+		panic(err)
+	}*/
+
+	matches, err := filepath.Glob(path.Join(opt.BaseDir, "/pages/*.html"))
+	if err != nil {
+		panic(err)
+	}
+
+	for _, pagePath := range matches {
+		site.parsePage(pagePath)
+	}
+
+	/*for _, router := range site.Routers {
+		for pageURL, pageName := range router.Handler {
+			site.parsePage(pageURL, pageName)
+		}
+	}*/
+
+	return site
+}
+
+func (s *Site) parsePage(filePath string) {
+	var err error
+	var pageName = path.Base(filePath)
+	var spl = strings.Split(pageName, ".")
+	pageName = strings.Join(spl[:len(spl)-1], ".")
+
+	var pageDocument = s.parseFile(filePath)
+	var page = &Page{
+		Document: pageDocument,
+	}
+
+	title := pageDocument.Find("title").First()
+	body := pageDocument.Find("body").First()
+
+	page.Title = title.Text()
+	page.Body, err = body.Html()
+	if err != nil {
+		panic(err)
+	}
+
+	s.Pages[pageName] = page
+}
+
+func (s *Site) parseFile(path string) *goquery.Document {
+	indexFile, err := os.Open(path)
 	if err != nil {
 		panic(err)
 	}
@@ -33,40 +104,30 @@ func NewPageIndex(basePath string, indexPath string) string {
 		panic(err)
 	}
 
-	// find all go-root instances
-	document.Find("go-root").Each(func(i int, root *goquery.Selection) {
-		var _, isRendered = root.Attr("rdy")
+	var body = document.Find("body")
+	s.parseHTMLComponents(document.Find("link[rel=import]"), body)
+	/*rootHTML, err := body.Html()
+	if err != nil {
+		panic(err)
+	}*/
 
-		// fetch settings
-		/*if settingsPath, ok := root.Attr("settings"); ok {
+	return document
 
-		}*/
-
-		// init go-root rendering
-		if !isRendered {
-			parseHTMLComponents(basePath, document.Find("head link[rel=import]"), root)
-			var rootHTML, err = root.Html()
-			if err != nil {
-				panic(err)
-			}
-			rootHTML, err = renderTemplate(rootHTML)
-			if err != nil {
-				panic(err)
-			}
-			root.SetHtml(rootHTML)
-			root.SetAttr("rdy", "")
-		}
-	})
+	/*rootHTML, err = renderTemplate(rootHTML)
+	if err != nil {
+		panic(err)
+	}
+	body.SetHtml(rootHTML)
 
 	documentHtml, err := document.Html()
 	if err != nil {
 		panic(err)
 	}
 
-	return documentHtml
+	return documentHtml*/
 }
 
-func parseHTMLComponents(basePath string, links *goquery.Selection, root *goquery.Selection) {
+func (s *Site) parseHTMLComponents(links *goquery.Selection, root *goquery.Selection) {
 	// 1. Fetch all imports
 	// 2. Find links inside the import
 	// 3. Replace element content HTML with imported template content
@@ -74,7 +135,7 @@ func parseHTMLComponents(basePath string, links *goquery.Selection, root *goquer
 	links.Each(func(i int, linkNode *goquery.Selection) {
 		if importHref, ok := linkNode.Attr("href"); ok {
 			// read imported files
-			newBase, importHref := getPath(basePath, importHref)
+			importHref := path.Join(s.BaseDir, importHref)
 			importFile, err := os.Open(importHref)
 			if err != nil {
 				panic(err)
@@ -84,8 +145,7 @@ func parseHTMLComponents(basePath string, links *goquery.Selection, root *goquer
 			if err != nil {
 				panic(err)
 			}
-
-			// todo: find link[rel=import] inside the import
+			
 			var childLinks = link.Find("link[rel=import]")
 
 			// find templates inside the import
@@ -100,7 +160,7 @@ func parseHTMLComponents(basePath string, links *goquery.Selection, root *goquer
 							panic(err)
 						}
 						element.SetHtml(templateHTML)
-						parseHTMLComponents(newBase, childLinks, element)
+						s.parseHTMLComponents(childLinks, element)
 					})
 				}
 			})
