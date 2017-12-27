@@ -145,7 +145,7 @@ func (s *Site) parseHTMLComponents(links *goquery.Selection, root *goquery.Selec
 			if err != nil {
 				panic(err)
 			}
-			
+
 			var childLinks = link.Find("link[rel=import]")
 
 			// find templates inside the import
