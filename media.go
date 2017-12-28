@@ -104,6 +104,8 @@ func writeFile(ctx context.Context, key string, name string, bs []byte) (string,
 	var p string
 	var err error
 
+
+
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		return p, err

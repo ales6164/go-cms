@@ -58,6 +58,9 @@ var (
 )
 
 func (ctx Context) HasPermission(e *Entity, scope Scope) (Context, error) {
+	if ctx.isRendererReader && scope == Read {
+		return ctx, nil
+	}
 	if val1, ok := ctx.api.options.permissions[ctx.UserGroup()]; ok {
 		if val2, ok := val1[e.Name]; ok {
 			if val3, ok := val2[scope]; ok && val3 {

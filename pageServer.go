@@ -6,94 +6,211 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"net/http"
+	"github.com/gorilla/mux"
+	"html/template"
+	"errors"
+	"bytes"
+	"google.golang.org/appengine/datastore"
 )
 
-type view map[string]interface{}
+type data map[string]interface{}
 
 type Site struct {
 	*SiteOptions
 	/*Pages   *template.Template*/
-	Index *goquery.Document
+	index *goquery.Document
 
-	Pages map[string]*Page
+	pages   map[string]*Page
+	handler Handler
 }
 type SiteOptions struct {
-	Bucket  string
+	API     *API
 	BaseDir string
-	Routers []*Router
+	Bucket  string
 }
 type Page struct {
-	Document *goquery.Document
-	Title    string
-	Body     string
+	Title string
+	Body  template.HTML
+	Data  data
+
+	parsed *template.Template
+	links  *goquery.Selection
 }
-type Router struct {
-	OutletSelector string
-	Handler        Handler
+type Handler map[string]*Page
+
+var funcs = template.FuncMap{
+	"get": func(ctx Context, id string) map[string]interface{} {
+		key, err := datastore.DecodeKey(id)
+		if err != nil {
+			panic(err)
+		}
+
+		if e, ok := ctx.api.entities[key.Kind()]; ok {
+			var dataHolder = e.New(ctx)
+			dataHolder.key = key
+
+			err = datastore.Get(ctx.Context, key, dataHolder)
+			if err != nil {
+				panic(err)
+			}
+
+			return dataHolder.Output(ctx, true)
+		} else {
+			panic(errors.New("entity " + key.Kind() + " doesn't exist"))
+		}
+
+		return nil
+	},
+	"setTitle": func(dest data, value string) interface{} {
+		dest["page"].(*Page).Title = value
+		return nil
+	},
+	"setValue": func(dest data, name string, value interface{}) interface{} {
+		dest["page"].(*Page).Data[name] = value
+		return nil
+	},
+	"getValue": func(dest data, name string) interface{} {
+		return dest["page"].(*Page).Data[name]
+	},
 }
-type Handler map[string]string
 
 func NewSite(opt *SiteOptions) *Site {
-	// 1. Parse and render pages
-	// 2. Save pages to bucket
 	var site = &Site{
 		SiteOptions: opt,
-		Pages:       map[string]*Page{},
+		pages:       map[string]*Page{},
 	}
 
-	// Read index.html and query for HTML imports
+	// 1. Build index
 	var indexPath = path.Join(opt.BaseDir, "index.html")
-	site.Index = site.parseFile(indexPath)
+	site.index = site.buildFile(indexPath)
 
-	// Parse pages
-	/*var err error
-	site.Pages, err = template.New("").Funcs(htmlFuncMap).ParseGlob(path.Join(opt.BaseDir, "/pages/*.html"))
-	if err != nil {
-		panic(err)
-	}*/
-
+	// 2. Build pages
 	matches, err := filepath.Glob(path.Join(opt.BaseDir, "/pages/*.html"))
 	if err != nil {
 		panic(err)
 	}
-
 	for _, pagePath := range matches {
-		site.parsePage(pagePath)
+		site.buildPage(pagePath)
 	}
-
-	/*for _, router := range site.Routers {
-		for pageURL, pageName := range router.Handler {
-			site.parsePage(pageURL, pageName)
-		}
-	}*/
 
 	return site
 }
 
-func (s *Site) parsePage(filePath string) {
-	var err error
+func (s *Site) Handler(handler Handler) http.Handler {
+	s.handler = handler
+
+	var indexImports = map[string]bool{}
+	s.index.Find("link[rel=import]").Each(func(i int, selection *goquery.Selection) {
+		if href, ok := selection.Attr("href"); ok {
+			indexImports[path.Clean(href)] = true
+		}
+	})
+
+	// 3. Single page rendering function
+	var handlingFunc = func(page *Page) http.HandlerFunc {
+		index := s.index.Clone()
+
+		indexHead := index.Find("head")
+		page.links.Each(func(i int, selection *goquery.Selection) {
+			if href, ok := selection.Attr("href"); ok {
+				var cleanHref = path.Clean(href)
+				if _, ok := indexImports[cleanHref]; !ok {
+					indexHead.AppendSelection(selection)
+					indexImports[cleanHref] = true
+				}
+			}
+
+		})
+
+		// 2. Parse index html template
+		indexHtml, err := index.Html()
+		if err != nil {
+			panic(err)
+		}
+		parsedIndex, err := template.New("").Funcs(funcs).Parse(indexHtml)
+		if err != nil {
+			panic(err)
+		}
+
+		return func(w http.ResponseWriter, r *http.Request) {
+			var ctx Context
+			if s.API != nil {
+				ctx = s.API.newRendererContext(r)
+			}
+
+			var passingData = data{
+				"context": ctx,
+				"request": data{
+					"vars": mux.Vars(r),
+				},
+				"page": page,
+			}
+
+			buf := new(bytes.Buffer)
+			err := page.parsed.Execute(buf, passingData)
+			if err != nil {
+				ctx.PrintError(w, err, http.StatusInternalServerError)
+				return
+			}
+
+			page.Body = template.HTML(buf.String())
+
+			parsedIndex.Execute(w, passingData)
+		}
+	}
+
+	// 4. Set-up handlers
+	var router = mux.NewRouter()
+	for pagePath, page := range s.handler {
+		router.HandleFunc(pagePath, handlingFunc(page))
+	}
+
+	return router
+}
+
+func (s *Site) Page(name string) *Page {
+	if page, ok := s.pages[name]; ok {
+		return page
+	}
+	panic(errors.New("page " + name + " doesn't exist"))
+	return nil
+}
+
+func (s *Site) buildPage(filePath string) *Page {
 	var pageName = path.Base(filePath)
 	var spl = strings.Split(pageName, ".")
 	pageName = strings.Join(spl[:len(spl)-1], ".")
 
-	var pageDocument = s.parseFile(filePath)
+	var pageDocument = s.buildFile(filePath)
+
 	var page = &Page{
-		Document: pageDocument,
+		Data: data{},
 	}
 
-	title := pageDocument.Find("title").First()
-	body := pageDocument.Find("body").First()
+	// get links
+	var links = pageDocument.Find("link[rel=import]")
+	page.links = links.Clone()
 
-	page.Title = title.Text()
-	page.Body, err = body.Html()
+	// remove links
+	links.Remove()
+
+	var html, err = pageDocument.Html()
 	if err != nil {
 		panic(err)
 	}
 
-	s.Pages[pageName] = page
+	page.parsed, err = template.New("").Funcs(funcs).Parse(html)
+	if err != nil {
+		panic(err)
+	}
+
+	s.pages[pageName] = page
+
+	return page
 }
 
-func (s *Site) parseFile(path string) *goquery.Document {
+func (s *Site) buildFile(path string) *goquery.Document {
 	indexFile, err := os.Open(path)
 	if err != nil {
 		panic(err)
@@ -105,35 +222,21 @@ func (s *Site) parseFile(path string) *goquery.Document {
 	}
 
 	var body = document.Find("body")
-	s.parseHTMLComponents(document.Find("link[rel=import]"), body)
-	/*rootHTML, err := body.Html()
-	if err != nil {
-		panic(err)
-	}*/
+	s.buildImports(document.Find("link[rel=import]"), body)
 
 	return document
-
-	/*rootHTML, err = renderTemplate(rootHTML)
-	if err != nil {
-		panic(err)
-	}
-	body.SetHtml(rootHTML)
-
-	documentHtml, err := document.Html()
-	if err != nil {
-		panic(err)
-	}
-
-	return documentHtml*/
 }
 
-func (s *Site) parseHTMLComponents(links *goquery.Selection, root *goquery.Selection) {
+func (s *Site) buildImports(links *goquery.Selection, root *goquery.Selection) {
 	// 1. Fetch all imports
 	// 2. Find links inside the import
 	// 3. Replace element content HTML with imported template content
 	// 4. Return rendered root element
 	links.Each(func(i int, linkNode *goquery.Selection) {
-		if importHref, ok := linkNode.Attr("href"); ok {
+		_, goRender := linkNode.Attr("go")
+		if importHref, ok := linkNode.Attr("href"); ok && goRender {
+			linkNode.RemoveAttr("go")
+
 			// read imported files
 			importHref := path.Join(s.BaseDir, importHref)
 			importFile, err := os.Open(importHref)
@@ -160,10 +263,15 @@ func (s *Site) parseHTMLComponents(links *goquery.Selection, root *goquery.Selec
 							panic(err)
 						}
 						element.SetHtml(templateHTML)
-						s.parseHTMLComponents(childLinks, element)
+						s.buildImports(childLinks, element)
 					})
 				}
 			})
+
+			// remove link import from root if it doesn't contain script tag
+			if link.Find("script").Length() == 0 {
+				linkNode.Remove()
+			}
 		}
 	})
 }

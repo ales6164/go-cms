@@ -12,9 +12,10 @@ import (
 )
 
 type Context struct {
-	api *API
-	r   *http.Request
-	err error
+	api              *API
+	r                *http.Request
+	err              error
+	isRendererReader bool
 
 	Context context.Context
 
@@ -52,12 +53,22 @@ func (ctx Context) Token() string {
 func (a *API) NewContext(r *http.Request) Context {
 	user, renewedToken := a.getReqUser(r)
 	return Context{
-		r:       r,
-		Context: appengine.NewContext(r),
-		user:    user,
-		api:     a,
-		token:   renewedToken,
-		body:    &Body{hasReadBody: false},
+		r:                r,
+		Context:          appengine.NewContext(r),
+		user:             user,
+		api:              a,
+		token:            renewedToken,
+		body:             &Body{hasReadBody: false},
+	}
+}
+
+func (a *API) newRendererContext(r *http.Request) Context {
+	return Context{
+		r:                r,
+		Context:          appengine.NewContext(r),
+		api:              a,
+		isRendererReader: true,
+		body:             &Body{hasReadBody: false},
 	}
 }
 

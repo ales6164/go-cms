@@ -23,7 +23,7 @@ func (a *API) TemplateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = t.ExecuteTemplate(w, "body", view{"items": []string{"one", "two", "three"}})
+	err = t.ExecuteTemplate(w, "body", data{"items": []string{"one", "two", "three"}})
 	if err != nil {
 		ctx.PrintError(w, err, http.StatusBadRequest)
 	}
@@ -37,7 +37,7 @@ func renderTemplate(body string) (string, error) {
 
 	var doc bytes.Buffer
 	defer doc.Reset()
-	err = t.ExecuteTemplate(&doc, "body", view{"items": []string{"one", "two", "three"}})
+	err = t.ExecuteTemplate(&doc, "body", data{"items": []string{"one", "two", "three"}})
 	if err != nil {
 		return "", err
 	}

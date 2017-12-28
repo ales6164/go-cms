@@ -18,7 +18,7 @@ type API struct {
 	sessionStore  *sessions.CookieStore
 	signingKey    []byte
 
-	entities        []*Entity
+	entities        map[string]*Entity
 	handledEntities []*Entity
 
 	options *Options
@@ -71,6 +71,7 @@ func NewAPI(options *Options) *API {
 		options:    options,
 		signingKey: securecookie.GenerateRandomKey(64),
 		Handler:    &Server{r},
+		entities:   map[string]*Entity{},
 	}
 
 	a.middleware = AuthMiddleware(a.signingKey)
@@ -119,7 +120,7 @@ func (a *API) Add(es ...*Entity) error {
 			return err
 		}
 
-		a.entities = append(a.entities, e)
+		a.entities[e.Name] = e
 	}
 	return nil
 }
