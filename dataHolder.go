@@ -66,14 +66,25 @@ func (holder *DataHolder) Save() ([]datastore.Property, error) {
 		var inputProperties = holder.preparedInputData[field]
 		var loadedProperties = holder.loadedStoredData[field.Name]
 
+		var toSaveProps []datastore.Property
+
 		if len(inputProperties) != 0 {
-			holder.savedData = append(holder.savedData, inputProperties...)
+			toSaveProps = append(toSaveProps, inputProperties...)
 		} else if len(loadedProperties) != 0 {
-			holder.savedData = append(holder.savedData, loadedProperties...)
+			toSaveProps = append(toSaveProps, loadedProperties...)
 		} else if field.IsRequired {
 			return nil, FormError{FormErrFieldRequired, field}
 		}
 
+		holder.savedData = append(holder.savedData, toSaveProps...)
+
+		// save search field
+		// TODO:
+		if field.toSearchFieldConvertFunc != nil {
+			if err := field.toSearchFieldConvertFunc(holder, toSaveProps...); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// set meta tags

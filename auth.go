@@ -20,13 +20,13 @@ func AuthMiddleware(signingKey []byte) *JWTMiddleware {
 	})
 }
 
-func (ctx Context) newToken(userKey *datastore.Key, userGroup string, privateKey interface{}) error {
+func (ctx Context) newToken(userKey *datastore.Key, userGroup string, privateKey interface{}) (Context, error) {
 	var encodedUserKey = userKey.Encode()
 	var err error
 
 	ctx.token, err = _token(encodedUserKey, userGroup, privateKey)
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	ctx.user = User{
@@ -36,7 +36,7 @@ func (ctx Context) newToken(userKey *datastore.Key, userGroup string, privateKey
 		isAuthenticated: true,
 	}
 
-	return nil
+	return ctx, nil
 }
 
 func _token(encodedUserKey string, userGroup string, privateKey interface{}) (string, error) {

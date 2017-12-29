@@ -22,21 +22,20 @@ func (a *API) login(ctx Context, username string, password string) (Context, err
 		return ctx, err
 	}
 
-	err = ctx.newToken(key, a.options.DefaultUserGroup, tokenKey)
+	ctx, err = ctx.newToken(key, a.options.DefaultUserGroup, tokenKey)
 	if err != nil {
 		return ctx, err
 	}
 
-
 	return ctx, nil
 }
 
-func getUser(ctx context.Context, username string) (*datastore.Key, UserAccount, error) {
-	var ua UserAccount
+func getUser(ctx context.Context, username string) (*datastore.Key, *UserAccount, error) {
+	var ua = new(UserAccount)
 
 	var key = datastore.NewKey(ctx, "_UserAccount", username, 0, nil)
 
-	err := datastore.Get(ctx, key, &ua)
+	err := datastore.Get(ctx, key, ua)
 	if err != nil {
 		return key, ua, err
 	}

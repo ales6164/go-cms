@@ -19,6 +19,7 @@ type Field struct {
 	NoIndex  bool `json:"noIndex"`
 
 	isNesting bool // field name is of pattern one.two
+	toSearchFieldConvertFunc func(*DataHolder, ...datastore.Property) error
 
 	Widget Widget `json:"widget"` // todo: based on field type widget is picked automatically; can be manually set as well
 
@@ -117,7 +118,9 @@ type Widget string
 
 const (
 	ID            Type = "id"
+	Category      Type = "category"
 	Text          Type = "text"
+	Slug          Type = "slug"
 	LongText      Type = "longText"
 	Timestamp     Type = "timestamp"
 	HTML          Type = "html"
@@ -132,6 +135,7 @@ const (
 
 	Input       Widget = "input"
 	TextArea    Widget = "textArea"
+	Tags        Widget = "tags"
 	ColorPicker Widget = "colorPicker"
 	Select      Widget = "select"
 )

@@ -58,7 +58,7 @@ func (a *API) editor() http.Handler {
 			}
 		} else {
 			// Not logged in
-			var ua UserAccount
+			var ua *UserAccount
 			var userKey *datastore.Key
 
 			// Google Auth
@@ -74,16 +74,18 @@ func (a *API) editor() http.Handler {
 				err = datastore.RunInTransaction(ctx.Context, func(tc context.Context) error {
 					userKey, ua, err = getUser(tc, googleUser.Email)
 					if err != nil {
+
 						// User doesn't exist - try adding
 						if err == datastore.ErrNoSuchEntity {
 
 							// user doesn't exist - create new one
-							ua = UserAccount{
+							ua = &UserAccount{
 								Email:     googleUser.Email,
 								UserGroup: a.options.DefaultUserGroup,
 							}
 
 							userKey, err = datastore.Put(tc, userKey, ua)
+
 							return err
 						}
 					}
@@ -98,7 +100,7 @@ func (a *API) editor() http.Handler {
 			}
 
 			if len(ua.Email) > 0 {
-				err := ctx.newToken(userKey, "admin", tokenKey)
+				ctx, err := ctx.newToken(userKey, "admin", tokenKey)
 				if err != nil {
 					ctx.PrintError(w, err, http.StatusInternalServerError)
 					return

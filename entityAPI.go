@@ -99,8 +99,6 @@ func (a *API) handleCreate(e *Entity) func(w http.ResponseWriter, r *http.Reques
 			return
 		}
 
-		holder.updateSearchIndex()
-
 		ctx.Print(w, holder.Output(ctx, true))
 	}
 }
@@ -126,6 +124,8 @@ func (e *Entity) Create(ctx Context, dataHolder *DataHolder) (*DataHolder, error
 	if reqErr != nil {
 		log.Criticalf(ctx.Context, "failure saving _APIRequest error: %s", reqErr.Error())
 	}
+
+	dataHolder.updateSearchIndex()
 
 	return dataHolder, err
 }
@@ -158,8 +158,6 @@ func (a *API) handleUpdate(e *Entity) func(w http.ResponseWriter, r *http.Reques
 			ctx.PrintError(w, err, http.StatusInternalServerError)
 			return
 		}
-
-		holder.updateSearchIndex()
 
 		ctx.Print(w, holder.Output(ctx, true))
 	}
@@ -200,6 +198,12 @@ func (e *Entity) Update(ctx Context, dataHolder *DataHolder) (*DataHolder, error
 
 		return err
 	}, &datastore.TransactionOptions{XG: true})
+
+	if err != nil {
+		return dataHolder, err
+	}
+
+	dataHolder.updateSearchIndex()
 
 	return dataHolder, err
 }
