@@ -1,14 +1,22 @@
-package cms
+package user
 
 import (
+	"context"
+
 	"google.golang.org/appengine/datastore"
-	"golang.org/x/net/context"
 )
 
 type UserAccount struct {
-	Email     string
-	UserGroup string
-	Hash      []byte
+	Email     string `datastore:"email"`
+	AccessKey string `datastore:"accessKey" json:"-"`
+	UserGroup string `datastore:"userGroup"`
+	Hash      []byte `datastore:"hash,noindex" json:"-"`
+}
+
+type Profile struct {
+	FirstName string `datastore:"firstName" json:"firstName"`
+	LastName  string `datastore:"lastName" json:"lastName"`
+	Avatar    string `datastore:"avatar" json:"avatar"`
 }
 
 func (a *API) login(ctx Context, username string, password string) (Context, error) {

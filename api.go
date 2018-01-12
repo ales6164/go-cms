@@ -1,12 +1,13 @@
 package cms
 
 import (
+	"fmt"
 	"net/http"
+
+	"github.com/asaskevich/govalidator"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
-	"github.com/asaskevich/govalidator"
-	"fmt"
 )
 
 type API struct {
@@ -80,7 +81,11 @@ func NewAPI(options *Options) *API {
 	return a
 }
 
-func (a *API) Handle(p string, e *Entity) *mux.Router {
+func (a *API) Serve(rootPath string) {
+
+}
+
+func (a *API) handle(p string, e *Entity) *mux.Router {
 
 	var sub = a.router.PathPrefix(p).Subrouter()
 
@@ -93,15 +98,6 @@ func (a *API) Handle(p string, e *Entity) *mux.Router {
 	}).Methods(http.MethodGet)
 
 	a.handledEntities = append(a.handledEntities, e)
-
-	return sub
-}
-
-func (a *API) HandleFunc(p string, f func(w http.ResponseWriter, r *http.Request)) *mux.Router {
-
-	var sub = a.router.PathPrefix(p).Subrouter()
-
-	sub.HandleFunc("", f).Methods(http.MethodPost)
 
 	return sub
 }

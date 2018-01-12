@@ -1,24 +1,11 @@
-package cms
+package auth
 
 import (
-	"github.com/dgrijalva/jwt-go"
 	"time"
+
+	"github.com/dgrijalva/jwt-go"
 	"google.golang.org/appengine/datastore"
 )
-
-func AuthMiddleware(signingKey []byte) *JWTMiddleware {
-	return New(MiddlewareOptions{
-		Extractor: FromFirst(
-			FromAuthHeader,
-			FromParameter("token"),
-		),
-		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
-			return signingKey, nil
-		},
-		SigningMethod:       jwt.SigningMethodHS256,
-		CredentialsOptional: true,
-	})
-}
 
 func (ctx Context) newToken(userKey *datastore.Key, userGroup string, privateKey interface{}) (Context, error) {
 	var encodedUserKey = userKey.Encode()
