@@ -28,9 +28,9 @@ type MiddlewareOptions struct {
 	// It can be either a shared secret or a public key.
 	// Default value: nil
 	ValidationKeyGetter jwt.Keyfunc
-	// The name of the property in the request where the user information
+	// The name of the property in the request where the auth information
 	// from the JWT will be stored.
-	// Default value: "user"
+	// Default value: "auth"
 	UserProperty string
 	// The function that will be called when there's an error validating the token
 	// Default value:
@@ -73,7 +73,7 @@ func New(options ...MiddlewareOptions) *JWTMiddleware {
 	}
 
 	if opts.UserProperty == "" {
-		opts.UserProperty = "user"
+		opts.UserProperty = "auth"
 	}
 
 	if opts.ErrorHandler == nil {
@@ -95,7 +95,7 @@ func (m *JWTMiddleware) logf(format string, args ...interface{}) {
 	}
 }
 
-// Special implementation for optional user authentication.
+// Special implementation for optional auth authentication.
 /*func (m *JWTMiddleware) HandlerWithOptionalAuth(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	err := m.CheckJWT(w, r)
 
@@ -115,7 +115,7 @@ func (m *JWTMiddleware) HandlerWithNext(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
-func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
+/*func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Let secure process the request. If it returns an error,
 		// that indicates the request should not continue.
@@ -133,7 +133,7 @@ func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
 
 		h.ServeHTTP(w, r)
 	})
-}
+}*/
 
 // FromAuthHeader is a "TokenExtractor" that takes a give request and extracts
 // the JWT token from the Authorization header.
@@ -263,7 +263,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	m.logf("JWT: %v", parsedToken)
 
 	// If we get here, everything worked and we can set the
-	// user property in context.
+	// auth property in context.
 	context.Set(r, m.Options.UserProperty, parsedToken)
 
 	return nil

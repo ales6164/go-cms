@@ -1,35 +1,31 @@
-package cms
+package api
 
 import (
-	"github.com/dgrijalva/jwt-go"
-	gctx "github.com/gorilla/context"
 	"golang.org/x/net/context"
+	gcontext "github.com/gorilla/context"
 	"google.golang.org/appengine"
 	"io/ioutil"
 	"net/http"
+	"github.com/dgrijalva/jwt-go"
 	"time"
-	"google.golang.org/appengine/datastore"
 )
 
 type Context struct {
-	api              *API
-	r                *http.Request
-	err              error
-	isRendererReader bool
-
-	Context context.Context
-
-	user  User
-	token string
-
-	body *Body
+	IsAuthenticated bool
+	Request         *http.Request
+	Context         context.Context
+	Token           string
+	UnsignedToken   *jwt.Token
+	Project         string
+	User            string
+	*Body
 }
 
-type User struct {
-	userGroup       string
-	encodedUserKey  string
-	userKey         *datastore.Key
+type ContextUser struct {
+	isExpired       bool
 	isAuthenticated bool
+	Project         string
+	User            string
 }
 
 type Body struct {
@@ -37,81 +33,32 @@ type Body struct {
 	body        []byte
 }
 
-func (ctx Context) User() *datastore.Key {
-	return ctx.user.userKey
-}
-func (ctx Context) UserGroup() string {
-	return ctx.user.userGroup
-}
-func (ctx Context) IsAuthenticated() bool {
-	return ctx.user.isAuthenticated
-}
-func (ctx Context) Token() string {
-	return ctx.token
-}
-
-func (a *API) NewContext(r *http.Request) Context {
-	user, renewedToken := a.getReqUser(r)
+func NewContext(r *http.Request) Context {
+	user, renewedToken := authorize(r)
 	return Context{
-		r:                r,
-		Context:          appengine.NewContext(r),
-		user:             user,
-		api:              a,
-		token:            renewedToken,
-		body:             &Body{hasReadBody: false},
-	}
-}
-
-func (a *API) newRendererContext(r *http.Request) Context {
-	return Context{
-		r:                r,
-		Context:          appengine.NewContext(r),
-		api:              a,
-		isRendererReader: true,
-		body:             &Body{hasReadBody: false},
+		IsAuthenticated: user.isAuthenticated,
+		Request:         r,
+		Context:         appengine.NewContext(r),
+		Project:         user.Project,
+		User:            user.User,
+		UnsignedToken:   renewedToken,
+		Body:            &Body{hasReadBody: false},
 	}
 }
 
 func (ctx Context) WithBody() Context {
-	if !ctx.body.hasReadBody {
-		ctx.body.body, _ = ioutil.ReadAll(ctx.r.Body)
-		ctx.r.Body.Close()
-		ctx.body.hasReadBody = true
+	if !ctx.Body.hasReadBody {
+		ctx.Body.body, _ = ioutil.ReadAll(ctx.Request.Body)
+		ctx.Request.Body.Close()
+		ctx.Body.hasReadBody = true
 	}
 	return ctx
 }
 
-// return true if userKey matches with authenticated user
-func (ctx Context) UserMatches(userKey interface{}) bool {
-	if ctx.IsAuthenticated() {
+func authorize(r *http.Request) (*ContextUser, *jwt.Token) {
+	user := new(ContextUser)
 
-		if userKeyString, ok := userKey.(string); ok {
-			var err error
-			userKey, err = datastore.DecodeKey(userKeyString)
-			if err != nil {
-				return false
-			}
-		}
-
-		if userKeyDs, ok := userKey.(*datastore.Key); ok {
-			return userKeyDs.Equal(ctx.user.userKey)
-		}
-	}
-	return false
-}
-
-func (a *API) getReqUser(r *http.Request) (User, string) {
-	var user = User{
-		userGroup: "public",
-	}
-	var userGroup string
-	var encodedUserKey string
-	var isAuthenticated bool
-
-	var isExpired bool
-	var signedRenewedToken string
-
-	tkn := gctx.Get(r, "user")
+	tkn := gcontext.Get(r, "auth")
 
 	if tkn != nil {
 		token := tkn.(*jwt.Token)
@@ -119,46 +66,30 @@ func (a *API) getReqUser(r *http.Request) (User, string) {
 		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 
 			if err := claims.Valid(); err == nil {
-				userGroup = claims["grp"].(string)
-				encodedUserKey = claims["sub"].(string)
-				isAuthenticated = true
+				user.Project = claims["pro"].(string)
+				user.User = claims["sub"].(string)
+				user.isAuthenticated = true
 			} else if exp, ok := claims["exp"].(float64); ok {
 				// check if it's less than a week old
 				if time.Now().Unix()-int64(exp) < time.Now().Add(time.Hour * 24 * 7).Unix() {
-					userGroup = claims["grp"].(string)
-					encodedUserKey = claims["sub"].(string)
-					isAuthenticated = true
-					isExpired = true
+					user.Project = claims["pro"].(string)
+					user.User = claims["sub"].(string)
+					user.isAuthenticated = true
+					user.isExpired = true
 				}
 			}
 
 			// check if everything seems alright
-			if isAuthenticated && len(encodedUserKey) > 0 && len(userGroup) > 0 {
-
+			if user.isAuthenticated && len(user.User) > 0 {
 				// issue a new token
-				if isExpired {
-					var err error
-					signedRenewedToken, err = _token(encodedUserKey, userGroup, a.signingKey)
-					if err != nil {
-						return user, signedRenewedToken
-					}
-				}
-
-				// decode user key for later use
-				userKey, err := datastore.DecodeKey(encodedUserKey)
-				if err != nil {
+				if user.isExpired {
+					signedRenewedToken := newToken(user.User, user.Project)
 					return user, signedRenewedToken
-				}
 
-				return User{
-					userGroup:       userGroup,
-					encodedUserKey:  encodedUserKey,
-					userKey:         userKey,
-					isAuthenticated: isAuthenticated,
-				}, signedRenewedToken
+				}
+				return user, nil
 			}
 		}
 	}
-
-	return user, signedRenewedToken
+	return nil, nil
 }

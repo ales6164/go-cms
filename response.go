@@ -1,4 +1,4 @@
-package cms
+package api
 
 import (
 	"encoding/json"
@@ -20,12 +20,12 @@ func printData(w http.ResponseWriter, response interface{}) {
 }
 
 func (ctx *Context) Print(w http.ResponseWriter, response interface{}) {
-	write(w, ctx.Token(), http.StatusOK, "", responseKey, response)
+	write(w, ctx.Token, http.StatusOK, "", responseKey, response)
 }
 
 func (ctx *Context) PrintError(w http.ResponseWriter, err error, code int) {
 	log.Errorf(ctx.Context, "Internal Error: %v", err)
-	write(w, ctx.Token(), code, err.Error(), responseKey, nil)
+	write(w, ctx.Token, code, err.Error(), responseKey, nil)
 }
 
 func write(w http.ResponseWriter, token string, status int, message string, responseKey string, response interface{}) {
