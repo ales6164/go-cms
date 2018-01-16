@@ -6,33 +6,20 @@ import (
 	"io/ioutil"
 	"encoding/json"
 	"github.com/asaskevich/govalidator"
-	"fmt"
 	"errors"
+	"google.golang.org/appengine/datastore"
 )
 
 func OutputData(w http.ResponseWriter, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, map[string]interface{}{
-		"status": http.StatusOK,
-		"result": data,
-	})
+	write(w, "", http.StatusOK, "", "result", data)
 }
 
 func OutputError(w http.ResponseWriter, err error) {
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, map[string]interface{}{
-		"status":  http.StatusInternalServerError,
-		"message": err.Error(),
-	})
+	write(w, "", http.StatusInternalServerError, err.Error(), "", nil)
 }
 
 func OutputFormError(w http.ResponseWriter, err Error) {
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, map[string]interface{}{
-		"status":  http.StatusBadRequest,
-		"error":   err.Code,
-		"message": err.Message,
-	})
+	write(w, "", http.StatusBadRequest, err.Message, "error", err.Code)
 }
 
 func LoginHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
@@ -153,6 +140,7 @@ func RegisterHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
 }
 
 var ErrUnathorized = errors.New("unathorized")
+
 func AddProjectHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
 	type Input struct {
 		Name      string `json:"name"`
@@ -177,21 +165,24 @@ func AddProjectHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		tkn, usr, err := RegisterEndpoint(ctx, input.Email, input.Password, input.FirstName, input.LastName, input.Avatar)
+		usrKey, err := datastore.DecodeKey(ctx.User)
 		if err != nil {
 			OutputError(w, err)
 			return
 		}
 
-		signedToken, err := tkn.SignedString(app.PrivateKey)
+		proKey, pro, err := AddProject(ctx.Context, input.Name, input.Namespace)
 		if err != nil {
 			OutputError(w, err)
 			return
 		}
 
-		OutputData(w, Output{
-			User:  usr,
-			Token: signedToken,
-		})
+		_, _, err = AddProjectAccess(ctx.Context, usrKey, proKey)
+		if err != nil {
+			OutputError(w, err)
+			return
+		}
+
+		ctx.Print(w, pro)
 	}
 }

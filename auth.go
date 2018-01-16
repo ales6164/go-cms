@@ -9,7 +9,6 @@ import (
 	"errors"
 )
 
-
 // namespace is email
 type User struct {
 	Hash      []byte `datastore:"hash,noindex" json:"-"`
@@ -62,15 +61,19 @@ func RegisterEndpoint(ctx context.Context, email, password, firstName, lastName,
 	// create User
 	usrKey := datastore.NewKey(ctx, "User", email, 0, nil)
 	err = datastore.RunInTransaction(ctx, func(tc context.Context) error {
-		err := datastore.Get(ctx, usrKey, nil)
+		err := datastore.Get(ctx, usrKey, &datastore.PropertyList{})
 
-		if err != nil && err == datastore.ErrNoSuchEntity {
-			// register
-			_, err := datastore.Put(ctx, usrKey, usr)
-			return err
+		if err != nil {
+			if err == datastore.ErrNoSuchEntity {
+				// register
+				_, err := datastore.Put(ctx, usrKey, usr)
+				return err
+			}
+		} else {
+			return ErrUserAlreadyExists
 		}
 
-		return ErrUserAlreadyExists
+		return err
 	}, nil)
 	if err != nil {
 		return nil, nil, err

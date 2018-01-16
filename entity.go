@@ -1,10 +1,7 @@
 package api
 
 import (
-	"google.golang.org/appengine/memcache"
 	"golang.org/x/net/context"
-	"google.golang.org/appengine"
-	"google.golang.org/appengine/datastore"
 )
 
 type Entity struct {
@@ -22,10 +19,10 @@ type Field struct {
 
 func AddEntity(ctx context.Context, e Entity) {
 
-	datastore.RunInTransaction(ctx, func(tc context.Context) error {
+	/*datastore.RunInTransaction(ctx, func(tc context.Context) error {
 		key := datastore.NewKey(tc, "Entity", e.Name, )
 		datastore.Get(tc, )
-	}, nil)
+	}, nil)*/
 }
 
 func UpdateEntity(ctx context.Context, e Entity) {
