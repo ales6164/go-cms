@@ -1,8 +1,6 @@
 package api
 
 import (
-	"time"
-	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/appengine/datastore"
 	"golang.org/x/net/context"
 	"github.com/dgrijalva/jwt-go"
@@ -18,36 +16,41 @@ type User struct {
 	Avatar    string `datastore:"avatar,noindex" json:"avatar"`
 }
 
-func LoginEndpoint(ctx context.Context, email string, password string, projectEncodedKey string) (*jwt.Token, *User, error) {
+type Token struct {
+	Id        string `json:"id"`
+	ExpiresAt int64  `json:"expiresAt"`
+}
+
+func LoginEndpoint(ctx context.Context, email string, password string, projectAccessEncodedKey string) (*jwt.Token, *User, *ProjectAccess, error) {
 	usrKey := datastore.NewKey(ctx, "User", email, 0, nil)
 
 	usr := new(User)
 	err := datastore.Get(ctx, usrKey, usr)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	err = decrypt(usr.Hash, []byte(password))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	_, err = getProjectRole(ctx, usrKey, projectEncodedKey)
-	if err != nil {
+	proAccess, err := getProjectAccess(ctx, usrKey, projectAccessEncodedKey)
+	if err != nil || len(proAccess.Role) == 0 {
 		// return token but without project access
-		return newToken(usrKey.Encode(), ""), usr, nil
+		return newToken(usrKey.Encode(), ""), usr, proAccess, nil
 	} else {
-		return newToken(usrKey.Encode(), projectEncodedKey), usr, nil
+		return newToken(usrKey.Encode(), projectAccessEncodedKey), usr, proAccess, nil
 	}
 }
 
 var ErrUserAlreadyExists = errors.New("user with that email already exists")
 
-func RegisterEndpoint(ctx context.Context, email, password, firstName, lastName, avatar string) (*jwt.Token, *User, error) {
+func RegisterEndpoint(ctx context.Context, email, password, firstName, lastName, avatar string) (*jwt.Token, *User, *ProjectAccess, error) {
 	// create password hash
 	hash, err := crypt([]byte(password))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	usr := &User{
@@ -76,16 +79,20 @@ func RegisterEndpoint(ctx context.Context, email, password, firstName, lastName,
 		return err
 	}, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	return newToken(usrKey.Encode(), ""), usr, nil
+	return newToken(usrKey.Encode(), ""), usr, nil, nil
 }
 
-func getProjectRole(ctx context.Context, usrKey *datastore.Key, projectEncodedKey string) (string, error) {
-	proKey, err := datastore.DecodeKey(projectEncodedKey)
+func SelectProjectEndpoint(ctx Context, projectAccessKey *datastore.Key) *jwt.Token {
+	return newToken(ctx.userKey.Encode(), projectAccessKey.Encode())
+}
+
+func getProjectAccess(ctx context.Context, usrKey *datastore.Key, projectAccessEncodedKey string) (*ProjectAccess, error) {
+	proKey, err := datastore.DecodeKey(projectAccessEncodedKey)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	proAccKey := datastore.NewKey(ctx, "ProjectAccess", proKey.StringID(), 0, usrKey)
@@ -93,38 +100,8 @@ func getProjectRole(ctx context.Context, usrKey *datastore.Key, projectEncodedKe
 	proAcc := new(ProjectAccess)
 	err = datastore.Get(ctx, proAccKey, proAcc)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return proAcc.Role, nil
-}
-
-func newToken(userKey string, projectKey string) *jwt.Token {
-	var exp = time.Now().Add(time.Hour * 12).Unix()
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"aud": "api",
-		"nbf": time.Now().Add(-time.Minute).Unix(),
-		"exp": exp,
-		"iat": time.Now().Unix(),
-		"iss": "sdk",
-		"sub": userKey,
-		"pro": projectKey,
-	})
-	//return token.SignedString(privateKey)
-}
-
-func decrypt(hash []byte, password []byte) error {
-	defer clear(password)
-	return bcrypt.CompareHashAndPassword(hash, password)
-}
-
-func crypt(password []byte) ([]byte, error) {
-	defer clear(password)
-	return bcrypt.GenerateFromPassword(password, 13)
-}
-
-func clear(b []byte) {
-	for i := 0; i < len(b); i++ {
-		b[i] = 0
-	}
+	return proAcc, nil
 }

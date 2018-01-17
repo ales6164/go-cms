@@ -21,37 +21,49 @@ type ProjectAccess struct {
 
 var ErrProjectAlreadyExists = errors.New("project with that name already exists")
 
-func AddProject(ctx context.Context, name, namespace string) (*datastore.Key, *Project, error) {
+func NewProject(ctx Context, name, namespace string) (*datastore.Key, *datastore.Key, *Project, *ProjectAccess, error) {
+	proKey := datastore.NewKey(ctx, "Project", namespace, 0, nil)
+	proAccessKey := datastore.NewKey(ctx, "ProjectAccess", namespace, 0, ctx.userKey)
+
 	pro := &Project{
 		Name:      name,
 		Namespace: namespace,
 	}
-	var key *datastore.Key
+
+	proAccess := &ProjectAccess{
+		Project: proKey,
+		User:    ctx.userKey,
+		Role:    "admin",
+	}
+
 	err := datastore.RunInTransaction(ctx, func(tc context.Context) error {
-		key = datastore.NewKey(tc, "Project", namespace, 0, nil)
-		err := datastore.Get(tc, key, nil)
+		err := datastore.Get(tc, proKey, &datastore.PropertyList{})
+
 		if err != nil && err == datastore.ErrNoSuchEntity {
-			// no project with that name; can create one
-			_, err = datastore.Put(tc, key, pro)
+			_, err = datastore.Put(tc, proKey, pro)
+			if err != nil {
+				_, err = datastore.Put(tc, proAccessKey, proAccess)
+			}
 			return err
 		}
 		return ErrProjectAlreadyExists
-	}, nil)
+	}, &datastore.TransactionOptions{
+		XG:       true,
+		Attempts: 2,
+	})
 
-	return key, pro, err
+	return proKey, proAccessKey, pro, proAccess, err
 }
 
-func AddProjectAccess(ctx context.Context, user *datastore.Key, project *datastore.Key) (*datastore.Key, *ProjectAccess, error) {
-	pro := &ProjectAccess{
-		Project: project,
-		User:    user,
-		Role:    "admin",
-	}
-	key := datastore.NewKey(ctx, "ProjectAccess", project.StringID(), 0, user)
+func GetProjectAccess(ctx Context, namespace string) (*datastore.Key, *ProjectAccess, error) {
+	proAccessKey := datastore.NewKey(ctx, "ProjectAccess", namespace, 0, ctx.userKey)
+	proAccess := new(ProjectAccess)
+	err := datastore.Get(ctx, proAccessKey, proAccess)
+	return proAccessKey, proAccess, err
+}
 
-	_, err := datastore.Put(ctx, key, pro)
-
-
-
-	return key, pro, err
+func GetProject(ctx Context, key *datastore.Key) (*Project, error) {
+	pro := new(Project)
+	err := datastore.Get(ctx, key, pro)
+	return pro, err
 }

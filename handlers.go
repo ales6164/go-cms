@@ -2,25 +2,10 @@ package api
 
 import (
 	"net/http"
-	"google.golang.org/appengine"
-	"io/ioutil"
 	"encoding/json"
 	"github.com/asaskevich/govalidator"
-	"errors"
-	"google.golang.org/appengine/datastore"
+	"github.com/gorilla/mux"
 )
-
-func OutputData(w http.ResponseWriter, data interface{}) {
-	write(w, "", http.StatusOK, "", "result", data)
-}
-
-func OutputError(w http.ResponseWriter, err error) {
-	write(w, "", http.StatusInternalServerError, err.Error(), "", nil)
-}
-
-func OutputFormError(w http.ResponseWriter, err Error) {
-	write(w, "", http.StatusBadRequest, err.Message, "error", err.Code)
-}
 
 func LoginHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
 	type Input struct {
@@ -28,55 +13,49 @@ func LoginHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 		Project  string `json:"project"`
 	}
-	type Output struct {
-		*User
-		Token string `json:"token"`
-	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := NewContext(r).WithBody()
 
-		body, err := ioutil.ReadAll(r.Body)
+		var input Input
+		err := json.Unmarshal(ctx.body, &input)
 		if err != nil {
-			OutputError(w, err)
+			ctx.PrintError(w, err)
 			return
 		}
-		defer r.Body.Close()
 
-		var loginForm Input
-		err = json.Unmarshal(body, &loginForm)
+		if !govalidator.IsEmail(input.Email) {
+			ctx.PrintFormError(w, ErrInvalidEmail)
+			return
+		}
+
+		if len(input.Password) < 6 {
+			ctx.PrintFormError(w, ErrPasswordTooShort)
+			return
+		}
+
+		tkn, usr, proAccess, err := LoginEndpoint(ctx, input.Email, input.Password, input.Project)
 		if err != nil {
-			OutputError(w, err)
+			ctx.PrintError(w, err)
 			return
 		}
 
-		if !govalidator.IsEmail(loginForm.Email) {
-			OutputFormError(w, ErrInvalidEmail)
-			return
+		var pro *Project
+		if proAccess != nil {
+			pro, err = GetProject(ctx, proAccess.Project)
+			if err != nil {
+				ctx.PrintError(w, err)
+				return
+			}
 		}
 
-		if len(loginForm.Password) < 6 {
-			OutputFormError(w, ErrPasswordTooShort)
-			return
-		}
-
-		ctx := appengine.NewContext(r)
-
-		tkn, usr, err := LoginEndpoint(ctx, loginForm.Email, loginForm.Password, loginForm.Project)
+		signedToken, err := app.SignToken(tkn)
 		if err != nil {
-			OutputError(w, err)
+			ctx.PrintError(w, err)
 			return
 		}
 
-		signedToken, err := tkn.SignedString(app.PrivateKey)
-		if err != nil {
-			OutputError(w, err)
-			return
-		}
-
-		OutputData(w, Output{
-			User:  usr,
-			Token: signedToken,
-		})
+		ctx.PrintAuth(w, usr, pro, signedToken)
 	}
 }
 
@@ -88,101 +67,116 @@ func RegisterHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
 		LastName  string `json:"lastName"`
 		Avatar    string `json:"avatar"`
 	}
-	type Output struct {
-		*User
-		Token string `json:"token"`
-	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			OutputError(w, err)
-			return
-		}
-		defer r.Body.Close()
+		ctx := NewContext(r).WithBody()
 
 		var input Input
-		err = json.Unmarshal(body, &input)
+		err := json.Unmarshal(ctx.body, &input)
 		if err != nil {
-			OutputError(w, err)
+			ctx.PrintError(w, err)
 			return
 		}
 
 		if !govalidator.IsEmail(input.Email) {
-			OutputFormError(w, ErrInvalidEmail)
+			ctx.PrintFormError(w, ErrInvalidEmail)
 			return
 		}
 
 		if len(input.Password) < 6 {
-			OutputFormError(w, ErrPasswordTooShort)
+			ctx.PrintFormError(w, ErrPasswordTooShort)
 			return
 		}
 
-		ctx := appengine.NewContext(r)
-
-		tkn, usr, err := RegisterEndpoint(ctx, input.Email, input.Password, input.FirstName, input.LastName, input.Avatar)
+		tkn, usr, _, err := RegisterEndpoint(ctx, input.Email, input.Password, input.FirstName, input.LastName, input.Avatar)
 		if err != nil {
-			OutputError(w, err)
+			ctx.PrintError(w, err)
 			return
 		}
 
-		signedToken, err := tkn.SignedString(app.PrivateKey)
+		signedToken, err := app.SignToken(tkn)
 		if err != nil {
-			OutputError(w, err)
+			ctx.PrintError(w, err)
 			return
 		}
 
-		OutputData(w, Output{
-			User:  usr,
-			Token: signedToken,
-		})
+		ctx.PrintAuth(w, usr, nil, signedToken)
 	}
 }
 
-var ErrUnathorized = errors.New("unathorized")
-
-func AddProjectHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
+func NewProjectHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
 	type Input struct {
 		Name      string `json:"name"`
 		Namespace string `json:"namespace"`
 	}
-	type Output struct {
-		*User
-		Token string `json:"token"`
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := NewContext(r).WithBody()
+		authenticated, ctx, _ := NewContext(r).WithBody().Authenticate()
 
-		if !ctx.IsAuthenticated {
-			ctx.PrintError(w, ErrUnathorized, http.StatusUnauthorized)
+		if !authenticated {
+			ctx.PrintAuthError(w)
 			return
 		}
 
 		var input Input
 		err := json.Unmarshal(ctx.body, &input)
 		if err != nil {
-			OutputError(w, err)
+			ctx.PrintError(w, err)
 			return
 		}
 
-		usrKey, err := datastore.DecodeKey(ctx.User)
+		_, proAccessKey, pro, _, err := NewProject(ctx, input.Name, input.Namespace)
 		if err != nil {
-			OutputError(w, err)
+			ctx.PrintError(w, err)
 			return
 		}
 
-		proKey, pro, err := AddProject(ctx.Context, input.Name, input.Namespace)
+		tkn := SelectProjectEndpoint(ctx, proAccessKey)
+
+		signedToken, err := app.SignToken(tkn)
 		if err != nil {
-			OutputError(w, err)
+			ctx.PrintError(w, err)
 			return
 		}
 
-		_, _, err = AddProjectAccess(ctx.Context, usrKey, proKey)
+		ctx.PrintAuth(w, nil, pro, signedToken)
+	}
+}
+
+func SelectProjectHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		authenticated, ctx, _ := NewContext(r).WithBody().Authenticate()
+
+		if !authenticated {
+			ctx.PrintAuthError(w)
+			return
+		}
+
+		namespace := mux.Vars(r)["namespace"]
+		if len(namespace) == 0 {
+			ctx.PrintAuthError(w)
+			return
+		}
+
+		proAccessKey, proAccess, err := GetProjectAccess(ctx, namespace)
+		if err != nil || len(proAccess.Role) == 0 {
+			ctx.PrintAuthError(w)
+			return
+		}
+
+		tkn := SelectProjectEndpoint(ctx, proAccessKey)
+
+		pro, err := GetProject(ctx, proAccess.Project)
 		if err != nil {
-			OutputError(w, err)
+			ctx.PrintError(w, err)
 			return
 		}
 
-		ctx.Print(w, pro)
+		signedToken, err := app.SignToken(tkn)
+		if err != nil {
+			ctx.PrintError(w, err)
+			return
+		}
+
+		ctx.PrintAuth(w, nil, pro, signedToken)
 	}
 }
