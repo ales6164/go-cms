@@ -9,11 +9,12 @@ import (
 
 // namespace is email
 type User struct {
-	Hash      []byte `datastore:"hash,noindex" json:"-"`
-	Email     string `datastore:"email" json:"email"`
-	FirstName string `datastore:"firstName" json:"firstName"`
-	LastName  string `datastore:"lastName" json:"lastName"`
-	Avatar    string `datastore:"avatar,noindex" json:"avatar"`
+	Hash      []byte           `datastore:"hash,noindex" json:"-"`
+	Email     string           `datastore:"email" json:"email"`
+	FirstName string           `datastore:"firstName" json:"firstName"`
+	LastName  string           `datastore:"lastName" json:"lastName"`
+	Avatar    string           `datastore:"avatar,noindex" json:"avatar"`
+	Projects  []*datastore.Key `datastore:"projects,noindex" json:"projects"`
 }
 
 type Token struct {
