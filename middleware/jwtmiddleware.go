@@ -8,6 +8,8 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/context"
+	"google.golang.org/appengine"
+	clog "google.golang.org/appengine/log"
 )
 
 // A function called whenever an error is encountered
@@ -115,7 +117,7 @@ func (m *JWTMiddleware) HandlerWithNext(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
-/*func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
+func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Let secure process the request. If it returns an error,
 		// that indicates the request should not continue.
@@ -123,17 +125,22 @@ func (m *JWTMiddleware) HandlerWithNext(w http.ResponseWriter, r *http.Request, 
 
 		// If there was an error, do not continue.
 		if err != nil {
+
+			ctx := appengine.NewContext(r)
+			clog.Debugf(ctx, "auth error: %s", err.Error())
+
 			if len(m.Options.RedirectOnError) > 0 {
 				redirect(w, r, m.Options.RedirectOnError)
 			} else {
-				printError(w, err, http.StatusUnauthorized)
+				panic(err)
+				//printError(w, err, http.StatusUnauthorized)
 			}
 			return
 		}
 
 		h.ServeHTTP(w, r)
 	})
-}*/
+}
 
 // FromAuthHeader is a "TokenExtractor" that takes a give request and extracts
 // the JWT token from the Authorization header.

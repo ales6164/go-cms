@@ -104,7 +104,7 @@ func RegisterHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func NewProjectHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
+func NewProjectHandler(app *App) http.HandlerFunc {
 	type Input struct {
 		Name      string `json:"name"`
 		Namespace string `json:"namespace"`
@@ -142,7 +142,26 @@ func NewProjectHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func SelectProjectHandler(app *App) func(w http.ResponseWriter, r *http.Request) {
+func ListProjectHandler(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		authenticated, ctx, _ := NewContext(r).WithBody().Authenticate()
+
+		if !authenticated {
+			ctx.PrintAuthError(w)
+			return
+		}
+
+		pros, err := GetProjects(ctx)
+		if err != nil {
+			ctx.PrintError(w, err)
+			return
+		}
+
+		ctx.PrintResult(w, pros)
+	}
+}
+
+func SelectProjectHandler(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		authenticated, ctx, _ := NewContext(r).WithBody().Authenticate()
 
@@ -153,13 +172,13 @@ func SelectProjectHandler(app *App) func(w http.ResponseWriter, r *http.Request)
 
 		namespace := mux.Vars(r)["namespace"]
 		if len(namespace) == 0 {
-			ctx.PrintAuthError(w)
+			ctx.PrintFormError(w, NewError("namespace missing", http.StatusBadRequest))
 			return
 		}
 
 		proAccessKey, proAccess, err := GetProjectAccess(ctx, namespace)
 		if err != nil || len(proAccess.Role) == 0 {
-			ctx.PrintAuthError(w)
+			ctx.PrintFormError(w, NewError("accesss missing", http.StatusBadRequest))
 			return
 		}
 

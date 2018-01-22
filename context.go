@@ -10,6 +10,7 @@ import (
 	"time"
 	"google.golang.org/appengine/datastore"
 	"encoding/json"
+	"google.golang.org/appengine/log"
 )
 
 type Context struct {
@@ -52,8 +53,11 @@ func (ctx Context) Authenticate() (bool, Context, *jwt.Token) {
 	var err error
 
 	tkn := gcontext.Get(ctx.r, "auth")
+	log.Debugf(ctx, "Authenticate")
 
 	if tkn != nil {
+		log.Debugf(ctx, "has token")
+
 		token := tkn.(*jwt.Token)
 
 		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
@@ -111,7 +115,7 @@ func (ctx Context) Authenticate() (bool, Context, *jwt.Token) {
 }
 
 func newToken(encUserKey string, encProjectAccessKey string) *jwt.Token {
-	var exp = time.Now().Add(time.Hour * 12).Unix()
+	var exp = time.Now().Add(time.Hour * 72).Unix()
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"aud": "api",
 		"nbf": time.Now().Add(-time.Minute).Unix(),

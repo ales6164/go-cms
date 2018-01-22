@@ -15,8 +15,8 @@ type Project struct {
 // parent: User, namespace: Project.Namespace
 type ProjectAccess struct {
 	Project *datastore.Key `datastore:"project" json:"project"`
-	User    *datastore.Key `datastore:"account" json:"account"`
-	Role    string // admin, editor, viewer
+	User    *datastore.Key `datastore:"user" json:"account"`
+	Role    string         `datastore:"role" json:"role"` // admin, editor, viewer
 }
 
 var ErrProjectAlreadyExists = errors.New("project with that name already exists")
@@ -41,7 +41,7 @@ func NewProject(ctx Context, name, namespace string) (*datastore.Key, *datastore
 
 		if err != nil && err == datastore.ErrNoSuchEntity {
 			_, err = datastore.Put(tc, proKey, pro)
-			if err != nil {
+			if err == nil {
 				_, err = datastore.Put(tc, proAccessKey, proAccess)
 			}
 			return err
@@ -53,6 +53,21 @@ func NewProject(ctx Context, name, namespace string) (*datastore.Key, *datastore
 	})
 
 	return proKey, proAccessKey, pro, proAccess, err
+}
+
+func GetProjects(ctx Context) ([]*Project, error) {
+	var proAccs []ProjectAccess
+	_, err := datastore.NewQuery("ProjectAccess").Ancestor(ctx.userKey).GetAll(ctx, &proAccs)
+	if err != nil {
+		return nil, err
+	}
+	var proKeys []*datastore.Key
+	for _, proAcc := range proAccs {
+		proKeys = append(proKeys, proAcc.Project)
+	}
+	var pros = make([]*Project, len(proKeys))
+	err = datastore.GetMulti(ctx, proKeys, pros)
+	return pros, err
 }
 
 func GetProjectAccess(ctx Context, namespace string) (*datastore.Key, *ProjectAccess, error) {
