@@ -32,13 +32,13 @@ func (a *App) Serve(rootPath string) {
 	// Project handling
 	r.Handle("/project", authMiddleware.Handler(NewProjectHandler(a))).Methods(http.MethodPost) // ADD
 	r.Handle("/project", authMiddleware.Handler(ListProjectHandler(a))).Methods(http.MethodGet)    // AUTHORIZE W/ PROJECT
-	r.Handle("/project/{{namespace}}", authMiddleware.Handler(SelectProjectHandler(a))).Methods(http.MethodGet)    // AUTHORIZE W/ PROJECT
+	r.Handle("/project/{namespace}", authMiddleware.Handler(SelectProjectHandler(a))).Methods(http.MethodGet)    // AUTHORIZE W/ PROJECT
 
 	// Entity handling
 	r.HandleFunc("/entity", LoginHandler(a)).Methods(http.MethodPost)         // ADD
 	r.HandleFunc("/entity", LoginHandler(a)).Methods(http.MethodPut)          // UPDATE
 	r.HandleFunc("/entity", LoginHandler(a)).Methods(http.MethodDelete)       // DELETE
-	r.HandleFunc("/entity/{{name}}", LoginHandler(a)).Methods(http.MethodGet) // GET
+	r.HandleFunc("/entity/{name}", LoginHandler(a)).Methods(http.MethodGet) // GET
 
 	// Entity API
 

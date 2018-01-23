@@ -170,7 +170,8 @@ func SelectProjectHandler(app *App) http.HandlerFunc {
 			return
 		}
 
-		namespace := mux.Vars(r)["namespace"]
+		vars := mux.Vars(r)
+		namespace := vars["namespace"]
 		if len(namespace) == 0 {
 			ctx.PrintFormError(w, NewError("namespace missing", http.StatusBadRequest))
 			return
