@@ -8,17 +8,17 @@ import (
 	"net/http"
 	"github.com/dgrijalva/jwt-go"
 	"time"
-	"google.golang.org/appengine/datastore"
 	"encoding/json"
-	"google.golang.org/appengine/log"
+	"github.com/gorilla/mux"
 )
 
 type Context struct {
 	r                *http.Request
 	IsAuthenticated  bool
+	HasProjectAccess bool
 	context.Context
-	projectAccessKey *datastore.Key
-	userKey          *datastore.Key
+	User             string
+	Project          string
 	*Body
 }
 
@@ -45,37 +45,28 @@ func (ctx Context) WithBody() Context {
 }
 
 // Authenticates user; if token is expired, returns a renewed unsigned *jwt.Token
-func (ctx Context) Authenticate() (bool, Context, *jwt.Token) {
-	var isAuthenticated, isExpired, hasProjectAccessKey bool
-	var encUserKey, encProjectAccessKey string
-	var unsignedToken *jwt.Token
-	var userKey, projectAccessKey *datastore.Key
-	var err error
+func (ctx Context) Authenticate(requireProjectAccess bool) (bool, Context) {
+	var isAuthenticated, isExpired, hasProjectNamespace bool
+	var userEmail, projectNamespace string
 
 	tkn := gcontext.Get(ctx.r, "auth")
-	log.Debugf(ctx, "Authenticate")
-
 	if tkn != nil {
-		log.Debugf(ctx, "has token")
-
 		token := tkn.(*jwt.Token)
-
 		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-
 			if err := claims.Valid(); err == nil {
-				if encProjectAccessKey, ok = claims["pro"].(string); ok && len(encProjectAccessKey) > 0 {
-					hasProjectAccessKey = true
+				if projectNamespace, ok = claims["pro"].(string); ok && len(projectNamespace) > 0 {
+					hasProjectNamespace = true
 				}
-				if encUserKey, ok = claims["sub"].(string); ok && len(encUserKey) > 0 {
+				if userEmail, ok = claims["sub"].(string); ok && len(userEmail) > 0 {
 					isAuthenticated = true
 				}
 			} else if exp, ok := claims["exp"].(float64); ok {
 				// check if it's less than a week old
 				if time.Now().Unix()-int64(exp) < time.Now().Add(time.Hour * 24 * 7).Unix() {
-					if encProjectAccessKey, ok = claims["pro"].(string); ok && len(encProjectAccessKey) > 0 {
-						hasProjectAccessKey = true
+					if projectNamespace, ok = claims["pro"].(string); ok && len(projectNamespace) > 0 {
+						hasProjectNamespace = true
 					}
-					if encUserKey, ok = claims["sub"].(string); ok && len(encUserKey) > 0 {
+					if userEmail, ok = claims["sub"].(string); ok && len(userEmail) > 0 {
 						isAuthenticated = true
 						isExpired = true
 					}
@@ -84,37 +75,76 @@ func (ctx Context) Authenticate() (bool, Context, *jwt.Token) {
 		}
 	}
 
-	if hasProjectAccessKey {
-		projectAccessKey, err = datastore.DecodeKey(encProjectAccessKey)
-		if err != nil {
-			// project access key was provided but decoding returned error ... something is not right
-			// todo: log this kind of behavior
-			isAuthenticated = false
-		}
+	ctx.IsAuthenticated = isAuthenticated && (hasProjectNamespace || !requireProjectAccess) && !isExpired
+	if ctx.IsAuthenticated {
+		ctx.HasProjectAccess = hasProjectNamespace
+		ctx.User = userEmail
+		ctx.Project = projectNamespace
+	} else {
+		ctx.HasProjectAccess = false
+		ctx.User = ""
+		ctx.Project = ""
+		ctx.Context = nil
 	}
 
-	// check if everything seems alright
-	if isAuthenticated {
-		// issue a new token
-		if isExpired {
-			unsignedToken = newToken(encUserKey, encProjectAccessKey)
-		}
-		userKey, err = datastore.DecodeKey(encUserKey)
-		if err != nil {
-			// TODO: ERROR COULD INDICATE A HACK - LOG THIS AND NOTIFY ADMIN
-			isAuthenticated = false
-			unsignedToken = nil
+	return ctx.IsAuthenticated, ctx
+}
+
+// Authenticates user; if token is expired, returns a renewed unsigned *jwt.Token
+func (ctx Context) renew() (Context, *jwt.Token) {
+	var isAuthenticated, hasProjectNamespace bool
+	var userEmail, projectNamespace string
+	var unsignedToken *jwt.Token
+
+	tkn := gcontext.Get(ctx.r, "auth")
+	if tkn != nil {
+		token := tkn.(*jwt.Token)
+
+		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+
+			if err := claims.Valid(); err == nil {
+				if projectNamespace, ok = claims["pro"].(string); ok && len(projectNamespace) > 0 {
+					hasProjectNamespace = true
+				}
+				if userEmail, ok = claims["sub"].(string); ok && len(userEmail) > 0 {
+					isAuthenticated = true
+				}
+			} else if exp, ok := claims["exp"].(float64); ok {
+				// check if it's less than a week old
+				if time.Now().Unix()-int64(exp) < time.Now().Add(time.Hour * 24 * 7).Unix() {
+					if projectNamespace, ok = claims["pro"].(string); ok && len(projectNamespace) > 0 {
+						hasProjectNamespace = true
+					}
+					if userEmail, ok = claims["sub"].(string); ok && len(userEmail) > 0 {
+						isAuthenticated = true
+					}
+				}
+			}
 		}
 	}
 
 	ctx.IsAuthenticated = isAuthenticated
-	ctx.userKey = userKey
-	ctx.projectAccessKey = projectAccessKey
+	ctx.User = userEmail
 
-	return isAuthenticated, ctx, unsignedToken
+	vars := mux.Vars(ctx.r)
+	newProjectNamespace := vars["project"]
+	if len(newProjectNamespace) > 0 {
+		ctx.HasProjectAccess = true
+		ctx.Project = newProjectNamespace
+	} else {
+		ctx.HasProjectAccess = hasProjectNamespace
+		ctx.Project = projectNamespace
+	}
+
+	// issue a new token
+	if isAuthenticated {
+		unsignedToken = newToken(ctx.User, ctx.Project)
+	}
+
+	return ctx, unsignedToken
 }
 
-func newToken(encUserKey string, encProjectAccessKey string) *jwt.Token {
+func newToken(userEmail string, projectNamespace string) *jwt.Token {
 	var exp = time.Now().Add(time.Hour * 72).Unix()
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"aud": "api",
@@ -122,14 +152,19 @@ func newToken(encUserKey string, encProjectAccessKey string) *jwt.Token {
 		"exp": exp,
 		"iat": time.Now().Unix(),
 		"iss": "sdk",
-		"sub": encUserKey,
-		"pro": encProjectAccessKey,
+		"sub": userEmail,
+		"pro": projectNamespace,
 	})
 }
 
 /**
 RESPONSE
  */
+
+type Token struct {
+	Id        string `json:"id"`
+	ExpiresAt int64  `json:"expiresAt"`
+}
 
 type Result struct {
 	Status int         `json:"status"`
@@ -138,9 +173,8 @@ type Result struct {
 	Error   int    `json:"error"`
 	Message string `json:"message"`
 
-	Token   *Token   `json:"token"`
-	User    *User    `json:"user"`
-	Project *Project `json:"project"`
+	Token *Token `json:"token"`
+	User  *User  `json:"user"`
 }
 
 func (ctx *Context) PrintResult(w http.ResponseWriter, result interface{}) {
@@ -154,14 +188,13 @@ func (ctx *Context) PrintResult(w http.ResponseWriter, result interface{}) {
 	json.NewEncoder(w).Encode(out)
 }
 
-func (ctx *Context) PrintAuth(w http.ResponseWriter, user *User, project *Project, token *Token) {
+func (ctx *Context) PrintAuth(w http.ResponseWriter, user *User, token *Token) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var out = Result{
-		Status:  http.StatusOK,
-		User:    user,
-		Token:   token,
-		Project: project,
+		Status: http.StatusOK,
+		User:   user,
+		Token:  token,
 	}
 
 	json.NewEncoder(w).Encode(out)
@@ -190,7 +223,7 @@ func (ctx *Context) PrintAuthError(w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(out)
 }
 
-func (ctx *Context) PrintFormError(w http.ResponseWriter, err Error) {
+func (ctx *Context) PrintFormError(w http.ResponseWriter, err *Error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
 

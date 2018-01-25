@@ -6,10 +6,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/ales6164/go-cms/middleware"
+	"github.com/asaskevich/govalidator"
+	"strings"
 )
 
 type App struct {
 	PrivateKey []byte
+	Kinds      []interface{}
 }
 
 func NewApp() *App {
@@ -18,29 +21,45 @@ func NewApp() *App {
 		PrivateKey: []byte("MVoBOkxWGi7pwM1bN9hgxgEVjVXmhTAq"),
 	}
 
+	govalidator.CustomTypeTagMap.Set("isSlug", govalidator.CustomTypeValidator(IsSlug))
+
+	a.DefineKind((*Kind)(nil))
+
 	return a
+}
+
+func (a *App) DefineKind(class interface{}) {
+	a.Kinds = append(a.Kinds, class)
 }
 
 func (a *App) Serve(rootPath string) {
 	authMiddleware := middleware.AuthMiddleware(a.PrivateKey)
 	r := mux.NewRouter().PathPrefix(rootPath).Subrouter()
 
-	// User handling
-	r.HandleFunc("/auth/login", LoginHandler(a)).Methods(http.MethodPost)
-	r.HandleFunc("/auth/register", RegisterHandler(a)).Methods(http.MethodPost)
+	// API
+	for _, kind := range a.Kinds {
+		kindName := strings.ToLower(getType(kind))
+		r.Handle("/api/{project}/"+kindName+"/{id}", authMiddleware.Handler(a.KindGetHandler(kind))).Methods(http.MethodGet)
+	}
+	// CUSTOM KINDS:
+	//r.Handle("/api/{project}/{kind}/{id}", authMiddleware.Handler(APIGetHandler(a))).Methods(http.MethodGet)       // GET
+	//r.Handle("/api/{project}/{kind}", authMiddleware.Handler(APIAddHandler(a))).Methods(http.MethodPost)           // ADD
+	//r.Handle("/api/{project}/{kind}/{id}", authMiddleware.Handler(APIUpdateHandler(a))).Methods(http.MethodPut)    // UPDATE
+	//r.Handle("/api/{project}/{kind}/{id}", authMiddleware.Handler(APIDeleteHandler(a))).Methods(http.MethodDelete) // DELETE
 
-	// Project handling
-	r.Handle("/project", authMiddleware.Handler(NewProjectHandler(a))).Methods(http.MethodPost) // ADD
-	r.Handle("/project", authMiddleware.Handler(ListProjectHandler(a))).Methods(http.MethodGet)    // AUTHORIZE W/ PROJECT
-	r.Handle("/project/{namespace}", authMiddleware.Handler(SelectProjectHandler(a))).Methods(http.MethodGet)    // AUTHORIZE W/ PROJECT
+	// Create project kind
+	//r.Handle("/api/{project}", authMiddleware.Handler(KindHandler(a))).Methods(http.MethodPost)
 
-	// Entity handling
-	r.HandleFunc("/entity", LoginHandler(a)).Methods(http.MethodPost)         // ADD
-	r.HandleFunc("/entity", LoginHandler(a)).Methods(http.MethodPut)          // UPDATE
-	r.HandleFunc("/entity", LoginHandler(a)).Methods(http.MethodDelete)       // DELETE
-	r.HandleFunc("/entity/{name}", LoginHandler(a)).Methods(http.MethodGet) // GET
+	// Create project
+	r.Handle("/api", authMiddleware.Handler(a.CreateProjectHandler())).Methods(http.MethodPost)
 
-	// Entity API
+	// User authorization
+	r.HandleFunc("/auth/login", a.AuthLoginHandler()).Methods(http.MethodPost)
+	r.HandleFunc("/auth/register", a.AuthRegistrationHandler()).Methods(http.MethodPost)
+
+	// Project/User re-authorization
+	r.Handle("/auth", authMiddleware.Handler(a.AuthRenewProjectAccessTokenHandler())).Methods(http.MethodPost)
+	r.Handle("/auth/{project}", authMiddleware.Handler(a.AuthRenewProjectAccessTokenHandler())).Methods(http.MethodPost)
 
 	http.Handle(rootPath, &Server{r})
 }
