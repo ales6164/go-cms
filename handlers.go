@@ -7,6 +7,8 @@ import (
 	"google.golang.org/appengine/datastore"
 	"strings"
 	"golang.org/x/net/context"
+	"github.com/ales6164/go-cms/user"
+	"github.com/ales6164/go-cms/project"
 )
 
 func (a *App) AuthLoginHandler() http.HandlerFunc {
@@ -29,21 +31,21 @@ func (a *App) AuthLoginHandler() http.HandlerFunc {
 
 		// verify input
 		if !govalidator.IsEmail(input.Email) || len(input.Email) < 6 || len(input.Email) > 64 {
-			ctx.PrintFormError(w, ErrInvalidEmail)
+			ctx.PrintError(w, ErrInvalidEmail)
 			return
 		}
 		if len(input.Password) < 6 || len(input.Password) > 128 {
-			ctx.PrintFormError(w, ErrPasswordLength)
+			ctx.PrintError(w, ErrPasswordLength)
 			return
 		}
 
 		// get user
 		userKey := datastore.NewKey(ctx, "User", input.Email, 0, nil)
-		user := new(User)
+		user := new(user.User)
 		err = datastore.Get(ctx, userKey, user)
 		if err != nil {
 			if err == datastore.ErrNoSuchEntity {
-				ctx.PrintFormError(w, ErrUserDoesNotExist)
+				ctx.PrintError(w, ErrUserDoesNotExist)
 				return
 			}
 			ctx.PrintError(w, err)
@@ -53,13 +55,13 @@ func (a *App) AuthLoginHandler() http.HandlerFunc {
 		// decrypt hash
 		err = decrypt(user.Hash, []byte(input.Password))
 		if err != nil {
-			ctx.PrintFormError(w, ErrUserPasswordIncorrect)
+			ctx.PrintError(w, ErrUserPasswordIncorrect)
 			// todo: log and report
 			return
 		}
 
 		// get user projects
-		user.Projects, _ = GetUserProjects(ctx, userKey)
+		user.Projects, _ = project.GetUserProjects(ctx, userKey)
 
 		// create a token
 		token := newToken(user.Email, "")
@@ -98,15 +100,15 @@ func (a *App) AuthRegistrationHandler() http.HandlerFunc {
 
 		// verify input
 		if !govalidator.IsEmail(input.Email) || len(input.Email) < 6 || len(input.Email) > 64 {
-			ctx.PrintFormError(w, ErrInvalidEmail)
+			ctx.PrintError(w, ErrInvalidEmail)
 			return
 		}
 		if len(input.Password) < 6 || len(input.Password) > 128 {
-			ctx.PrintFormError(w, ErrPasswordLength)
+			ctx.PrintError(w, ErrPasswordLength)
 			return
 		}
 		if len(input.Photo) > 0 && !govalidator.IsURL(input.Photo) {
-			ctx.PrintFormError(w, ErrPhotoInvalidFormat)
+			ctx.PrintError(w, ErrPhotoInvalidFormat)
 			return
 		}
 
@@ -118,7 +120,7 @@ func (a *App) AuthRegistrationHandler() http.HandlerFunc {
 		}
 
 		// create User
-		user := &User{
+		user := &user.User{
 			Email:     input.Email,
 			Hash:      hash,
 			Photo:     input.Photo,
@@ -164,32 +166,32 @@ func (a *App) AuthRenewProjectAccessTokenHandler() http.HandlerFunc {
 		ctx, renewedToken := NewContext(r).renew()
 
 		if renewedToken == nil {
-			ctx.PrintAuthError(w)
+			ctx.PrintError(w, ErrUnathorized)
 			return
 		}
 
 		// get user
 		userKey := datastore.NewKey(ctx, "User", ctx.User, 0, nil)
-		user := new(User)
+		user := new(user.User)
 		err := datastore.Get(ctx, userKey, user)
 		if err != nil {
-			ctx.PrintAuthError(w)
+			ctx.PrintError(w, ErrUnathorized)
 			return
 		}
 
 		// check project access
 		if ctx.HasProjectAccess {
 			proAccessKey := datastore.NewKey(ctx, "ProjectAccess", ctx.Project, 0, userKey)
-			proAccess := new(ProjectAccess)
+			proAccess := new(project.ProjectAccess)
 			err := datastore.Get(ctx, proAccessKey, proAccess)
 			if err != nil {
-				ctx.PrintAuthError(w)
+				ctx.PrintError(w, ErrUnathorized)
 				return
 			}
 		}
 
 		// get user projects
-		user.Projects, _ = GetUserProjects(ctx, userKey)
+		user.Projects, _ = project.GetUserProjects(ctx, userKey)
 
 		// sign the new token
 		signedToken, err := a.SignToken(renewedToken)
@@ -211,7 +213,7 @@ func (a *App) CreateProjectHandler() http.HandlerFunc {
 		authenticated, ctx := NewContext(r).WithBody().Authenticate(false)
 
 		if !authenticated {
-			ctx.PrintAuthError(w)
+			ctx.PrintError(w, ErrUnathorized)
 			return
 		}
 
@@ -229,27 +231,27 @@ func (a *App) CreateProjectHandler() http.HandlerFunc {
 			return
 		}
 		if !ok {
-			ctx.PrintFormError(w, ErrInvalidFormInput)
+			ctx.PrintError(w, ErrInvalidFormInput)
 			return
 		}
 
 		userKey := datastore.NewKey(ctx, "User", ctx.User, 0, nil)
-		user := new(User)
+		user := new(user.User)
 		err = datastore.Get(ctx, userKey, user)
 		if err != nil {
-			ctx.PrintAuthError(w)
+			ctx.PrintError(w, ErrUnathorized)
 			return
 		}
 
 		proKey := datastore.NewKey(ctx, "Project", input.Namespace, 0, nil)
 		proAccessKey := datastore.NewKey(ctx, "ProjectAccess", input.Namespace, 0, userKey)
 
-		pro := &Project{
+		pro := &project.Project{
 			Name:      input.Name,
 			Namespace: input.Namespace,
 		}
 
-		proAccess := &ProjectAccess{
+		proAccess := &project.ProjectAccess{
 			Project: proKey,
 			User:    userKey,
 			Role:    "admin",
@@ -274,7 +276,7 @@ func (a *App) CreateProjectHandler() http.HandlerFunc {
 		token := newToken(user.Email, pro.Namespace)
 
 		// get user projects
-		user.Projects, _ = GetUserProjects(ctx, userKey)
+		user.Projects, _ = project.GetUserProjects(ctx, userKey)
 
 		// sign the new token
 		signedToken, err := a.SignToken(token)

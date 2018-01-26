@@ -1,7 +1,8 @@
-package api
+package project
 
 import (
 	"google.golang.org/appengine/datastore"
+	"golang.org/x/net/context"
 )
 
 // namespace is set
@@ -18,7 +19,7 @@ type ProjectAccess struct {
 	Role    string         `datastore:"role" json:"role"` // admin, editor, viewer, ...
 }
 
-func GetUserProjects(ctx Context, userKey *datastore.Key) ([]*Project, error) {
+func GetUserProjects(ctx context.Context, userKey *datastore.Key) ([]*Project, error) {
 	var proAccs []ProjectAccess
 	_, err := datastore.NewQuery("ProjectAccess").Ancestor(userKey).GetAll(ctx, &proAccs)
 	if err != nil {
@@ -33,14 +34,14 @@ func GetUserProjects(ctx Context, userKey *datastore.Key) ([]*Project, error) {
 	return pros, err
 }
 
-func GetProjectAccess(ctx Context, namespace string) (*datastore.Key, *ProjectAccess, error) {
+/*func GetProjectAccess(ctx Context, namespace string) (*datastore.Key, *ProjectAccess, error) {
 	proAccessKey := datastore.NewKey(ctx, "ProjectAccess", namespace, 0, ctx.userKey)
 	proAccess := new(ProjectAccess)
 	err := datastore.Get(ctx, proAccessKey, proAccess)
 	return proAccessKey, proAccess, err
-}
+}*/
 
-func GetProject(ctx Context, key *datastore.Key) (*Project, error) {
+func GetProject(ctx context.Context, key *datastore.Key) (*Project, error) {
 	pro := new(Project)
 	err := datastore.Get(ctx, key, pro)
 	return pro, err

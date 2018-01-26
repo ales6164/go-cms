@@ -10,6 +10,9 @@ import (
 	"time"
 	"encoding/json"
 	"github.com/gorilla/mux"
+	"github.com/ales6164/go-cms/user"
+	"google.golang.org/appengine/datastore"
+	"github.com/ales6164/go-cms/kind"
 )
 
 type Context struct {
@@ -17,6 +20,7 @@ type Context struct {
 	IsAuthenticated  bool
 	HasProjectAccess bool
 	context.Context
+	userKey          *datastore.Key
 	User             string
 	Project          string
 	*Body
@@ -42,6 +46,12 @@ func (ctx Context) WithBody() Context {
 		ctx.Body.hasReadBody = true
 	}
 	return ctx
+}
+
+func (ctx Context) Parse(k *kind.Kind) (Context, *kind.Holder, error) {
+	_, c := ctx.WithBody().Authenticate(true)
+	h := k.NewHolder(c, c.userKey)
+	return c, h, h.ParseInput(c.body)
 }
 
 // Authenticates user; if token is expired, returns a renewed unsigned *jwt.Token
@@ -80,11 +90,11 @@ func (ctx Context) Authenticate(requireProjectAccess bool) (bool, Context) {
 		ctx.HasProjectAccess = hasProjectNamespace
 		ctx.User = userEmail
 		ctx.Project = projectNamespace
+		ctx.userKey = datastore.NewKey(ctx, "User", userEmail, 0, nil)
 	} else {
 		ctx.HasProjectAccess = false
 		ctx.User = ""
 		ctx.Project = ""
-		ctx.Context = nil
 	}
 
 	return ctx.IsAuthenticated, ctx
@@ -166,33 +176,21 @@ type Token struct {
 	ExpiresAt int64  `json:"expiresAt"`
 }
 
-type Result struct {
-	Status int         `json:"status"`
-	Result interface{} `json:"result"`
-
-	Error   int    `json:"error"`
-	Message string `json:"message"`
-
-	Token *Token `json:"token"`
-	User  *User  `json:"user"`
+type AuthResult struct {
+	Token *Token     `json:"token"`
+	User  *user.User `json:"user"`
 }
 
 func (ctx *Context) PrintResult(w http.ResponseWriter, result interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-
-	var out = Result{
-		Status: http.StatusOK,
-		Result: result,
-	}
-
-	json.NewEncoder(w).Encode(out)
+	
+	json.NewEncoder(w).Encode(result)
 }
 
-func (ctx *Context) PrintAuth(w http.ResponseWriter, user *User, token *Token) {
+func (ctx *Context) PrintAuth(w http.ResponseWriter, user *user.User, token *Token) {
 	w.Header().Set("Content-Type", "application/json")
 
-	var out = Result{
-		Status: http.StatusOK,
+	var out = AuthResult{
 		User:   user,
 		Token:  token,
 	}
@@ -201,37 +199,12 @@ func (ctx *Context) PrintAuth(w http.ResponseWriter, user *User, token *Token) {
 }
 
 func (ctx *Context) PrintError(w http.ResponseWriter, err error) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusInternalServerError)
-
-	var out = Result{
-		Status:  http.StatusInternalServerError,
-		Message: err.Error(),
+	if err == ErrUnathorized {
+		w.WriteHeader(http.StatusUnauthorized)
+	} else if _, ok := err.(*Error); ok {
+		w.WriteHeader(http.StatusBadRequest)
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
 	}
-
-	json.NewEncoder(w).Encode(out)
-}
-
-func (ctx *Context) PrintAuthError(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-
-	var out = Result{
-		Status:  http.StatusUnauthorized,
-		Message: "unauthorized",
-	}
-
-	json.NewEncoder(w).Encode(out)
-}
-
-func (ctx *Context) PrintFormError(w http.ResponseWriter, err *Error) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusBadRequest)
-
-	var out = Result{
-		Status:  http.StatusBadRequest,
-		Error:   err.Code,
-		Message: err.Message,
-	}
-
-	json.NewEncoder(w).Encode(out)
+	w.Write([]byte(err.Error()))
 }

@@ -7,12 +7,13 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/ales6164/go-cms/middleware"
 	"github.com/asaskevich/govalidator"
-	"strings"
+	"github.com/ales6164/go-cms/kind"
+	"google.golang.org/appengine/datastore"
 )
 
 type App struct {
 	PrivateKey []byte
-	Kinds      []interface{}
+	Kinds      []*kind.Kind
 }
 
 func NewApp() *App {
@@ -23,12 +24,10 @@ func NewApp() *App {
 
 	govalidator.CustomTypeTagMap.Set("isSlug", govalidator.CustomTypeValidator(IsSlug))
 
-	a.DefineKind((*Kind)(nil))
-
 	return a
 }
 
-func (a *App) DefineKind(class interface{}) {
+func (a *App) DefineKind(class *kind.Kind) {
 	a.Kinds = append(a.Kinds, class)
 }
 
@@ -37,9 +36,10 @@ func (a *App) Serve(rootPath string) {
 	r := mux.NewRouter().PathPrefix(rootPath).Subrouter()
 
 	// API
-	for _, kind := range a.Kinds {
-		kindName := strings.ToLower(getType(kind))
-		r.Handle("/api/{project}/"+kindName+"/{id}", authMiddleware.Handler(a.KindGetHandler(kind))).Methods(http.MethodGet)
+	for _, k := range a.Kinds {
+		r.Handle("/api/{project}/"+k.Name, authMiddleware.Handler(a.KindAddHandler(k))).Methods(http.MethodPost)        // ADD
+		r.Handle("/api/{project}/"+k.Name+"/{id}", authMiddleware.Handler(a.KindGetHandler(k))).Methods(http.MethodGet) // GET
+		r.Handle("/api/{project}/"+k.Name+"/{id}", authMiddleware.Handler(a.KindUpdateHandler(k))).Methods(http.MethodPut) // UPDATE
 	}
 	// CUSTOM KINDS:
 	//r.Handle("/api/{project}/{kind}/{id}", authMiddleware.Handler(APIGetHandler(a))).Methods(http.MethodGet)       // GET
@@ -71,4 +71,72 @@ func (a *App) SignToken(token *jwt.Token) (*Token, error) {
 	}
 
 	return &Token{Id: signedToken, ExpiresAt: token.Claims.(jwt.MapClaims)["exp"].(int64)}, nil
+}
+
+func (a *App) KindAddHandler(k *kind.Kind) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, h, err := NewContext(r).Parse(k)
+		if err != nil {
+			ctx.PrintError(w, err)
+			return
+		}
+
+		err = h.Add()
+		if err != nil {
+			ctx.PrintError(w, err)
+			return
+		}
+
+		ctx.PrintResult(w, h.Output(false))
+	}
+}
+
+func (a *App) KindGetHandler(k *kind.Kind) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := NewContext(r)
+
+		vars := mux.Vars(r)
+		id := vars["id"]
+
+		key, err := datastore.DecodeKey(id)
+		if err != nil {
+			ctx.PrintError(w, err)
+			return
+		}
+
+		h, err := k.Get(ctx, key)
+		if err != nil {
+			ctx.PrintError(w, err)
+			return
+		}
+
+		ctx.PrintResult(w, h.Output(false))
+	}
+}
+
+func (a *App) KindUpdateHandler(k *kind.Kind) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, h, err := NewContext(r).Parse(k)
+		if err != nil {
+			ctx.PrintError(w, err)
+			return
+		}
+
+		vars := mux.Vars(r)
+		id := vars["id"]
+
+		key, err := datastore.DecodeKey(id)
+		if err != nil {
+			ctx.PrintError(w, err)
+			return
+		}
+
+		err = h.Update(key)
+		if err != nil {
+			ctx.PrintError(w, err)
+			return
+		}
+
+		ctx.PrintResult(w, h.Output(false))
+	}
 }
