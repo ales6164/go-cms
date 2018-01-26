@@ -183,7 +183,7 @@ type AuthResult struct {
 
 func (ctx *Context) PrintResult(w http.ResponseWriter, result interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	json.NewEncoder(w).Encode(result)
 }
 
