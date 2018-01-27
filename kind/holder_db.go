@@ -49,3 +49,12 @@ func (h *Holder) Update(key *datastore.Key) error {
 
 	return err
 }
+
+func (h *Holder) Delete() error {
+	err := datastore.Delete(h.context, h.key)
+	if err != nil {
+		return err
+	}
+	//dataHolder.updateSearchIndex()
+	return nil
+}
