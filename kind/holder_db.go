@@ -50,7 +50,8 @@ func (h *Holder) Update(key *datastore.Key) error {
 	return err
 }
 
-func (h *Holder) Delete() error {
+func (h *Holder) Delete(key *datastore.Key) error {
+	h.key = key
 	err := datastore.Delete(h.context, h.key)
 	if err != nil {
 		return err
