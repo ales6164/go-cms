@@ -1,43 +1,60 @@
 package kind
 
 import (
-	"google.golang.org/appengine/datastore"
-	"golang.org/x/net/context"
-	"strings"
 	"errors"
+	"strings"
+
+	"golang.org/x/net/context"
+	"google.golang.org/appengine/datastore"
 )
 
 type Kind struct {
-	Name   string   `json:"name"` // Only a-Z characters allowed
-	Fields []*Field `json:"fields"`
+	Name   string  `json:"name"` // Only a-Z characters allowed
+	Fields []Field `json:"field"`
 
-	fields         map[string]*Field
-	requiredFields []*Field
+	fields map[string]Field
 }
 
-func New(name string, fields ...*Field) *Kind {
+type Field interface {
+	GetName() string
+	GetRequired() bool
+	GetMultiple() bool
+	GetNoIndex() bool
+	GetNested() bool
+
+	Init() error
+	Parse(value interface{}) ([]datastore.Property, error)
+	Output(ctx context.Context, value interface{}) interface{}
+}
+
+func New(name string, fields ...Field) *Kind {
 	k := new(Kind)
 	k.Name = name
-	for _, field := range fields {
-		if len(field.Name) == 0 {
+	for _, f := range fields {
+		if len(f.GetName()) == 0 {
 			panic(errors.New("field name can't be empty"))
 		}
-		if field.Name == "meta" || field.Name == "id" {
-			panic(errors.New("field name '" + field.Name + "' already exists"))
+		if f.GetName() == "meta" || f.GetName() == "id" {
+			panic(errors.New("field name '" + f.GetName() + "' already exists"))
 		}
-		if field.Name[:1] == "_" {
+		if f.GetName()[:1] == "_" {
 			panic(errors.New("field name can't begin with an underscore"))
 		}
-		if split := strings.Split(field.Name, "."); len(split) > 1 {
+		if split := strings.Split(f.GetName(), "."); len(split) > 1 {
 			if split[0] == "meta" || split[0] == "id" {
-				panic(errors.New("field name '" + field.Name + "' already exists"))
+				panic(errors.New("field name '" + f.GetName() + "' already exists"))
 			}
-			field.isNesting = true
+			if f.GetNested() == false {
+				panic(errors.New("field name '" + f.GetName() + "' contains dots but is not nested"))
+			}
+		}
+		if err := f.Init(); err != nil {
+			panic(err)
 		}
 		if k.fields == nil {
-			k.fields = map[string]*Field{}
+			k.fields = map[string]Field{}
 		}
-		k.fields[field.Name] = field
+		k.fields[f.GetName()] = f
 	}
 	return k
 }
@@ -47,7 +64,7 @@ func (k *Kind) NewHolder(ctx context.Context, user *datastore.Key) *Holder {
 		Kind:              k,
 		context:           ctx,
 		user:              user,
-		preparedInputData: map[*Field][]datastore.Property{},
+		preparedInputData: map[Field][]datastore.Property{},
 		loadedStoredData:  map[string][]datastore.Property{},
 	}
 }

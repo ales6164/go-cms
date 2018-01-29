@@ -61,7 +61,7 @@ func (a *App) Serve(rootPath string) {
 		r.Handle("/{project}/api/"+k.Name, authMiddleware.Handler(a.KindAddHandler(k))).Methods(http.MethodPost)        // ADD
 		r.Handle("/{project}/api/"+k.Name+"/{id}", authMiddleware.Handler(a.KindGetHandler(k))).Methods(http.MethodGet) // GET
 		r.Handle("/{project}/api/"+k.Name+"/{id}", authMiddleware.Handler(a.KindUpdateHandler(k))).Methods(http.MethodPut) // UPDATE
-		r.Handle("/{project}/api/"+k.Name+"/{id}", authMiddleware.Handler(a.KindDeleteHandler(k))).Methods(http.MethodDelete) // UPDATE
+		r.Handle("/{project}/api/"+k.Name+"/{id}", authMiddleware.Handler(a.KindDeleteHandler(k))).Methods(http.MethodDelete) // DELETE
 	}
 
 	http.Handle(rootPath, &Server{r})
@@ -90,7 +90,7 @@ func (a *App) KindAddHandler(k *kind.Kind) http.HandlerFunc {
 			return
 		}
 
-		ctx.PrintResult(w, h.Output(false))
+		ctx.PrintResult(w, h.Output())
 	}
 }
 
@@ -113,7 +113,7 @@ func (a *App) KindGetHandler(k *kind.Kind) http.HandlerFunc {
 			return
 		}
 
-		ctx.PrintResult(w, h.Output(false))
+		ctx.PrintResult(w, h.Output())
 	}
 }
 
@@ -140,7 +140,7 @@ func (a *App) KindUpdateHandler(k *kind.Kind) http.HandlerFunc {
 			return
 		}
 
-		ctx.PrintResult(w, h.Output(false))
+		ctx.PrintResult(w, h.Output())
 	}
 }
 
@@ -167,6 +167,6 @@ func (a *App) KindDeleteHandler(k *kind.Kind) http.HandlerFunc {
 			return
 		}
 
-		ctx.PrintResult(w, h.Output(false))
+		ctx.PrintResult(w, h.Output())
 	}
 }

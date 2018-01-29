@@ -6,7 +6,7 @@ import (
 
 type Entity struct {
 	Name   string  `json:"name"`
-	Fields []Field `json:"fields"`
+	Fields []Field `json:"field"`
 }
 
 type Field struct {
