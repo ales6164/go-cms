@@ -10,47 +10,40 @@ import (
 )
 
 // Transforms text value into a slug string producing { text: originalValue, slug: newSlugValue }
-type Slug struct {
+type Article struct {
 	Name     string
 	Required bool
-	Multiple bool
-	NoIndex  bool
-	Nested   bool
 }
 
-func (x *Slug) Init() error {
-	if x.Multiple {
-		return fmt.Errorf("field type Slug doesn't support multiple values")
-	}
+func (x *Article) Init() error {
+	return  nil
+}
+
+func (x *Article) RegisterSubKind() *kind.Kind {
 	return nil
 }
 
-func (x *Slug) RegisterSubKind() *kind.Kind {
-	return nil
-}
-
-func (x *Slug) GetName() string {
+func (x *Article) GetName() string {
 	return x.Name
 }
 
-func (x *Slug) GetRequired() bool {
+func (x *Article) GetRequired() bool {
 	return x.Required
 }
 
-func (x *Slug) GetMultiple() bool {
-	return x.Multiple
+func (x *Article) GetMultiple() bool {
+	return false
 }
 
-func (x *Slug) GetNoIndex() bool {
-	return x.NoIndex
+func (x *Article) GetNoIndex() bool {
+	return true
 }
 
-func (x *Slug) GetNested() bool {
-	return x.Nested
+func (x *Article) GetNested() bool {
+	return true
 }
 
-
-func (x *Slug) Parse(value interface{}) ([]datastore.Property, error) {
+func (x *Article) Parse(value interface{}) ([]datastore.Property, error) {
 	var list []datastore.Property
 	var v map[string]interface{}
 
@@ -80,21 +73,21 @@ func (x *Slug) Parse(value interface{}) ([]datastore.Property, error) {
 
 	list = append(list, datastore.Property{
 		Name:     x.Name + ".text",
-		Multiple: x.Multiple,
-		NoIndex:  x.NoIndex,
+		Multiple: false,
+		NoIndex:  true,
 		Value:    valueText,
 	})
 	list = append(list, datastore.Property{
 		Name:     x.Name + ".slug",
-		Multiple: x.Multiple,
-		NoIndex:  x.NoIndex,
+		Multiple: false,
+		NoIndex:  true,
 		Value:    valueSlug,
 	})
 
 	return list, nil
 }
 
-func (x *Slug) Transform(value interface{}) (map[string]interface{}, error) {
+func (x *Article) Transform(value interface{}) (map[string]interface{}, error) {
 	var v map[string]interface{}
 	if v, ok := value.(map[string]interface{}); ok {
 		return v, nil
@@ -102,6 +95,6 @@ func (x *Slug) Transform(value interface{}) (map[string]interface{}, error) {
 	return v, fmt.Errorf("field '%s' value type '%s' is not valid", x.Name, reflect.TypeOf(value).String())
 }
 
-func (x *Slug) Output(ctx context.Context, value interface{}) interface{} {
+func (x *Article) Output(ctx context.Context, value interface{}) interface{} {
 	return value
 }

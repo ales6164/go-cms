@@ -6,13 +6,15 @@ import (
 
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/datastore"
+	"github.com/asaskevich/govalidator"
 )
 
 type Kind struct {
 	Name   string  `json:"name"` // Only a-Z characters allowed
 	Fields []Field `json:"field"`
 
-	fields map[string]Field
+	subKinds []*Kind // kinds managed by fields
+	fields   map[string]Field
 }
 
 type Field interface {
@@ -22,12 +24,17 @@ type Field interface {
 	GetNoIndex() bool
 	GetNested() bool
 
+	RegisterSubKind() *Kind
+
 	Init() error
 	Parse(value interface{}) ([]datastore.Property, error)
 	Output(ctx context.Context, value interface{}) interface{}
 }
 
 func New(name string, fields ...Field) *Kind {
+	if !govalidator.IsAlpha(name) {
+		panic(errors.New("kind name must contain a-zA-Z characters only"))
+	}
 	k := new(Kind)
 	k.Name = name
 	for _, f := range fields {
@@ -51,6 +58,9 @@ func New(name string, fields ...Field) *Kind {
 		if err := f.Init(); err != nil {
 			panic(err)
 		}
+		if subKind := f.RegisterSubKind(); subKind != nil {
+			k.subKinds = append(k.subKinds, subKind)
+		}
 		if k.fields == nil {
 			k.fields = map[string]Field{}
 		}
@@ -67,6 +77,11 @@ func (k *Kind) NewHolder(ctx context.Context, user *datastore.Key) *Holder {
 		preparedInputData: map[Field][]datastore.Property{},
 		loadedStoredData:  map[string][]datastore.Property{},
 	}
+}
+
+
+func (k *Kind) SubKinds() []*Kind {
+	return k.subKinds
 }
 
 func (k *Kind) NewIncompleteKey(c context.Context, parent *datastore.Key) *datastore.Key {

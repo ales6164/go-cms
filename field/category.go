@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"google.golang.org/appengine/datastore"
 	"golang.org/x/net/context"
+	"github.com/ales6164/go-cms/kind"
 )
 
 type Category struct {
@@ -12,10 +13,15 @@ type Category struct {
 	Required bool
 	Multiple bool
 	NoIndex  bool
-	Nested   bool
+	kind     *kind.Kind
 }
 
 func (x *Category) Init() error {
+	return nil
+}
+
+func (x *Category) RegisterSubKind() *kind.Kind {
+	x.kind = kind.New("categories")
 	return nil
 }
 
@@ -36,7 +42,7 @@ func (x *Category) GetNoIndex() bool {
 }
 
 func (x *Category) GetNested() bool {
-	return x.Nested
+	return true
 }
 
 func (x *Category) Parse(value interface{}) ([]datastore.Property, error) {
@@ -115,5 +121,4 @@ func (x *Category) Output(ctx context.Context, value interface{}) interface{} {
 }
 
 type category struct {
-
 }

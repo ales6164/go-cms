@@ -9,11 +9,13 @@ import (
 	"github.com/asaskevich/govalidator"
 	"github.com/ales6164/go-cms/kind"
 	"google.golang.org/appengine/datastore"
+	"fmt"
 )
 
 type App struct {
 	PrivateKey []byte
 	Kinds      []*kind.Kind
+	kinds      map[string]*kind.Kind
 }
 
 func NewApp() *App {
@@ -28,13 +30,29 @@ func NewApp() *App {
 }
 
 func (a *App) DefineKind(class *kind.Kind) {
+	if _, ok := a.kinds[class.Name]; ok {
+		panic(fmt.Errorf("kind with name %s already exists", class.Name))
+	}
 	a.Kinds = append(a.Kinds, class)
+	a.kinds[class.Name] = class
+
+	subKinds := class.SubKinds()
+	if len(subKinds) > 0 {
+		for _, k := range subKinds {
+			k.Name = class.Name + "_" + k.Name
+
+			if _, ok := a.kinds[k.Name]; ok {
+				panic(fmt.Errorf("kind with name %s already exists", k.Name))
+			}
+			a.Kinds = append(a.Kinds, k)
+			a.kinds[k.Name] = k
+		}
+	}
 }
 
 func (a *App) Serve(rootPath string) {
 	authMiddleware := middleware.AuthMiddleware(a.PrivateKey)
 	r := mux.NewRouter().PathPrefix(rootPath).Subrouter()
-
 
 	// CUSTOM KINDS:
 	//r.Handle("/api/{project}/{kind}/{id}", authMiddleware.Handler(APIGetHandler(a))).Methods(http.MethodGet)       // GET
@@ -58,9 +76,9 @@ func (a *App) Serve(rootPath string) {
 
 	// API
 	for _, k := range a.Kinds {
-		r.Handle("/{project}/api/"+k.Name, authMiddleware.Handler(a.KindAddHandler(k))).Methods(http.MethodPost)        // ADD
-		r.Handle("/{project}/api/"+k.Name+"/{id}", authMiddleware.Handler(a.KindGetHandler(k))).Methods(http.MethodGet) // GET
-		r.Handle("/{project}/api/"+k.Name+"/{id}", authMiddleware.Handler(a.KindUpdateHandler(k))).Methods(http.MethodPut) // UPDATE
+		r.Handle("/{project}/api/"+k.Name, authMiddleware.Handler(a.KindAddHandler(k))).Methods(http.MethodPost)              // ADD
+		r.Handle("/{project}/api/"+k.Name+"/{id}", authMiddleware.Handler(a.KindGetHandler(k))).Methods(http.MethodGet)       // GET
+		r.Handle("/{project}/api/"+k.Name+"/{id}", authMiddleware.Handler(a.KindUpdateHandler(k))).Methods(http.MethodPut)    // UPDATE
 		r.Handle("/{project}/api/"+k.Name+"/{id}", authMiddleware.Handler(a.KindDeleteHandler(k))).Methods(http.MethodDelete) // DELETE
 	}
 

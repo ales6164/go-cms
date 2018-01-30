@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"google.golang.org/appengine/datastore"
 	"golang.org/x/net/context"
+	"github.com/ales6164/go-cms/kind"
 )
 
 type Default struct {
@@ -16,6 +17,10 @@ type Default struct {
 }
 
 func (x *Default) Init() error {
+	return nil
+}
+
+func (x *Default) RegisterSubKind() *kind.Kind {
 	return nil
 }
 
