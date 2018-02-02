@@ -22,6 +22,7 @@ func NewApp() *App {
 	a := &App{
 		//PrivateKey: securecookie.GenerateRandomKey(64),
 		PrivateKey: []byte("MVoBOkxWGi7pwM1bN9hgxgEVjVXmhTAq"),
+		kinds:      map[string]*kind.Kind{},
 	}
 
 	govalidator.CustomTypeTagMap.Set("isSlug", govalidator.CustomTypeValidator(IsSlug))
