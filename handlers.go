@@ -210,7 +210,7 @@ func (a *App) CreateProjectHandler() http.HandlerFunc {
 		Namespace string `valid:"length(4|32),isSlug,required" json:"namespace"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		authenticated, ctx := NewContext(r).WithBody().Authenticate(false)
+		authenticated, ctx := NewContext(r).WithBody().Authenticate()
 
 		if !authenticated {
 			ctx.PrintError(w, ErrUnathorized)

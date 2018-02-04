@@ -49,13 +49,13 @@ func (ctx Context) WithBody() Context {
 }
 
 func (ctx Context) Parse(k *kind.Kind) (Context, *kind.Holder, error) {
-	_, c := ctx.WithBody().Authenticate(true)
+	_, c := ctx.WithBody().Authenticate()
 	h := k.NewHolder(c, c.userKey)
 	return c, h, h.ParseInput(c.body)
 }
 
-// Authenticates user; if token is expired, returns a renewed unsigned *jwt.Token
-func (ctx Context) Authenticate(requireProjectAccess bool) (bool, Context) {
+// Authenticates user
+func (ctx Context) Authenticate() (bool, Context) {
 	var isAuthenticated, isExpired, hasProjectNamespace bool
 	var userEmail, projectNamespace string
 
@@ -70,7 +70,7 @@ func (ctx Context) Authenticate(requireProjectAccess bool) (bool, Context) {
 				if userEmail, ok = claims["sub"].(string); ok && len(userEmail) > 0 {
 					isAuthenticated = true
 				}
-			} else if exp, ok := claims["exp"].(float64); ok {
+			} /*else if exp, ok := claims["exp"].(float64); ok {
 				// check if it's less than a week old
 				if time.Now().Unix()-int64(exp) < time.Now().Add(time.Hour * 24 * 7).Unix() {
 					if projectNamespace, ok = claims["pro"].(string); ok && len(projectNamespace) > 0 {
@@ -81,11 +81,11 @@ func (ctx Context) Authenticate(requireProjectAccess bool) (bool, Context) {
 						isExpired = true
 					}
 				}
-			}
+			}*/
 		}
 	}
 
-	ctx.IsAuthenticated = isAuthenticated && (hasProjectNamespace || !requireProjectAccess) && !isExpired
+	ctx.IsAuthenticated = isAuthenticated && !isExpired
 	if ctx.IsAuthenticated {
 		ctx.HasProjectAccess = hasProjectNamespace
 		ctx.User = userEmail

@@ -9,7 +9,6 @@ import (
 	"github.com/asaskevich/govalidator"
 	"github.com/ales6164/go-cms/kind"
 	"google.golang.org/appengine/datastore"
-	"fmt"
 )
 
 type App struct {
@@ -22,6 +21,7 @@ func NewApp() *App {
 	a := &App{
 		//PrivateKey: securecookie.GenerateRandomKey(64),
 		PrivateKey: []byte("MVoBOkxWGi7pwM1bN9hgxgEVjVXmhTAq"),
+		kinds:      map[string]*kind.Kind{},
 	}
 
 	govalidator.CustomTypeTagMap.Set("isSlug", govalidator.CustomTypeValidator(IsSlug))
@@ -29,7 +29,7 @@ func NewApp() *App {
 	return a
 }
 
-func (a *App) DefineKind(class *kind.Kind) {
+/*func (a *App) DefineKind(class *kind.Kind) {
 	if _, ok := a.kinds[class.Name]; ok {
 		panic(fmt.Errorf("kind with name %s already exists", class.Name))
 	}
@@ -48,20 +48,25 @@ func (a *App) DefineKind(class *kind.Kind) {
 			a.kinds[k.Name] = k
 		}
 	}
-}
+}*/
 
+/*
+Only have custom API defined kinds
+ */
 func (a *App) Serve(rootPath string) {
 	authMiddleware := middleware.AuthMiddleware(a.PrivateKey)
 	r := mux.NewRouter().PathPrefix(rootPath).Subrouter()
 
 	// CUSTOM KINDS:
-	//r.Handle("/api/{project}/{kind}/{id}", authMiddleware.Handler(APIGetHandler(a))).Methods(http.MethodGet)       // GET
-	//r.Handle("/api/{project}/{kind}", authMiddleware.Handler(APIAddHandler(a))).Methods(http.MethodPost)           // ADD
-	//r.Handle("/api/{project}/{kind}/{id}", authMiddleware.Handler(APIUpdateHandler(a))).Methods(http.MethodPut)    // UPDATE
-	//r.Handle("/api/{project}/{kind}/{id}", authMiddleware.Handler(APIDeleteHandler(a))).Methods(http.MethodDelete) // DELETE
+	r.Handle("/{project}/api/{kind}/{id}", authMiddleware.Handler(APIGetHandler(a))).Methods(http.MethodGet)       // GET
+	r.Handle("/{project}/api/{kind}", authMiddleware.Handler(APIAddHandler(a))).Methods(http.MethodPost)           // ADD
+	r.Handle("/{project}/api/{kind}/{id}", authMiddleware.Handler(APIUpdateHandler(a))).Methods(http.MethodPut)    // UPDATE
+	r.Handle("/{project}/api/{kind}/{id}", authMiddleware.Handler(APIDeleteHandler(a))).Methods(http.MethodDelete) // DELETE
 
 	// Create project kind
 	//r.Handle("/api/{project}", authMiddleware.Handler(KindHandler(a))).Methods(http.MethodPost)
+
+	//r.HandleFunc("/api", a.GetKindDefinitions()).Methods(http.MethodGet)
 
 	// Create project
 	r.Handle("/api/project", authMiddleware.Handler(a.CreateProjectHandler())).Methods(http.MethodPost)
@@ -75,12 +80,12 @@ func (a *App) Serve(rootPath string) {
 	r.Handle("/api/auth/{project}", authMiddleware.Handler(a.AuthRenewProjectAccessTokenHandler())).Methods(http.MethodPost)
 
 	// API
-	for _, k := range a.Kinds {
+	/*for _, k := range a.Kinds {
 		r.Handle("/{project}/api/"+k.Name, authMiddleware.Handler(a.KindAddHandler(k))).Methods(http.MethodPost)              // ADD
 		r.Handle("/{project}/api/"+k.Name+"/{id}", authMiddleware.Handler(a.KindGetHandler(k))).Methods(http.MethodGet)       // GET
 		r.Handle("/{project}/api/"+k.Name+"/{id}", authMiddleware.Handler(a.KindUpdateHandler(k))).Methods(http.MethodPut)    // UPDATE
 		r.Handle("/{project}/api/"+k.Name+"/{id}", authMiddleware.Handler(a.KindDeleteHandler(k))).Methods(http.MethodDelete) // DELETE
-	}
+	}*/
 
 	http.Handle(rootPath, &Server{r})
 }
