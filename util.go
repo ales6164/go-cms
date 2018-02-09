@@ -5,11 +5,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func getType(class interface{}) string {
+func getType(class interface{}) reflect.Type {
 	if t := reflect.TypeOf(class); t.Kind() == reflect.Ptr {
-		return t.Elem().Name()
+		return t.Elem()
 	} else {
-		return t.Name()
+		return t
 	}
 }
 
