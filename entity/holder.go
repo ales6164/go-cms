@@ -10,47 +10,45 @@ import (
 type Holder struct {
 	entity  *Entity
 	context api.Context
-	key     *datastore.Key
-	hasKey  bool
-	Value   interface{}
-	loaded  []datastore.Property
-	status  string
+
+	key        *datastore.Key
+	Data       *Data
+	properties []datastore.Property
 }
+
+type Data struct {
+	Meta  Meta        `json:"meta" datastore:"meta"`
+	Value interface{} `json:"value" datastore:"value"`
+}
+
+type Meta struct {
+	CreatedAt time.Time      `json:"createdAt" datastore:"createdAt"`
+	CreatedBy *datastore.Key `json:"createdBy" datastore:"createdBy"`
+	Version   int64          `json:"version" datastore:"version"` // 0, 1, 2, 3 ...
+	Status    string         `json:"status" datastore:"status"`   // draft, pendingApproval, published, removed
+	Label     string         `json:"label" datastore:"label"`     // don't know yet
+}
+
+type status string
+
+const (
+	StatusDraft     status = "draft"
+	StatusPending   status = "pending"
+	StatusPublished status = "published"
+	StatusRemoved   status = "removed"
+)
 
 func (h *Holder) Parse(body []byte) error {
-	return json.Unmarshal(body, &h.Value)
+	h.Data = &Data{}
+	return json.Unmarshal(body, &h.Data.Value)
 }
+
 
 func (h *Holder) Load(p []datastore.Property) error {
-	h.loaded = append(h.loaded, p...)
-	return nil
+	h.properties = p
+	return datastore.LoadStruct(h.Data, p)
 }
 
-// Save saves all of l's properties as a slice or Properties.
 func (h *Holder) Save() ([]datastore.Property, error) {
-	var props []datastore.Property
-
-	valueProps, err := datastore.SaveStruct(h.Value)
-	if err != nil {
-		return nil, err
-	}
-
-	props = append(props, datastore.Property{
-		Name:  "meta.status",
-		Value: h.status,
-	})
-
-	props = append(props, datastore.Property{
-		Name:  "meta.createdAt",
-		Value: time.Now(),
-	})
-
-	props = append(props, datastore.Property{
-		Name:  "meta.createdBy",
-		Value: h.context.UserKey,
-	})
-
-	props = append(props, valueProps...)
-
-	return props, nil
+	return datastore.SaveStruct(h.Data)
 }
