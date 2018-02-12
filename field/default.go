@@ -16,6 +16,15 @@ type Default struct {
 	Nested   bool
 }
 
+type Field struct {
+	Type     string `json:"type" datastore:"type"`
+	Name     string `json:"name" datastore:"name"`
+	Required bool   `json:"required" datastore:"required"`
+	Multiple bool   `json:"multiple" datastore:"multiple"`
+	NoIndex  bool   `json:"noIndex" datastore:"noIndex"`
+	Nested   bool   `json:"nested" datastore:"nested"`
+}
+
 func (x *Default) Init() error {
 	return nil
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/ales6164/go-cms/user"
 	"google.golang.org/appengine/datastore"
-	"github.com/ales6164/go-cms/kind"
 )
 
 type Context struct {
@@ -20,13 +19,13 @@ type Context struct {
 	IsAuthenticated  bool
 	HasProjectAccess bool
 	context.Context
-	userKey          *datastore.Key
+	UserKey          *datastore.Key
 	User             string
 	Project          string
-	*Body
+	*body
 }
 
-type Body struct {
+type body struct {
 	hasReadBody bool
 	body        []byte
 }
@@ -35,27 +34,25 @@ func NewContext(r *http.Request) Context {
 	return Context{
 		r:       r,
 		Context: appengine.NewContext(r),
-		Body:    &Body{hasReadBody: false},
+		body:    &body{hasReadBody: false},
 	}
 }
 
-func (ctx Context) WithBody() Context {
-	if !ctx.Body.hasReadBody {
-		ctx.Body.body, _ = ioutil.ReadAll(ctx.r.Body)
+func (ctx Context) Body() []byte {
+	if !ctx.body.hasReadBody {
+		ctx.body.body, _ = ioutil.ReadAll(ctx.r.Body)
 		ctx.r.Body.Close()
-		ctx.Body.hasReadBody = true
+		ctx.body.hasReadBody = true
 	}
-	return ctx
+	return ctx.body.body
 }
 
-func (ctx Context) Parse(k *kind.Kind) (Context, *kind.Holder, error) {
-	_, c := ctx.WithBody().Authenticate(true)
-	h := k.NewHolder(c, c.userKey)
-	return c, h, h.ParseInput(c.body)
+func (ctx Context) Id() string {
+	return mux.Vars(ctx.r)["id"]
 }
 
-// Authenticates user; if token is expired, returns a renewed unsigned *jwt.Token
-func (ctx Context) Authenticate(requireProjectAccess bool) (bool, Context) {
+// Authenticates user
+func (ctx Context) Authenticate() (bool, Context) {
 	var isAuthenticated, isExpired, hasProjectNamespace bool
 	var userEmail, projectNamespace string
 
@@ -70,7 +67,7 @@ func (ctx Context) Authenticate(requireProjectAccess bool) (bool, Context) {
 				if userEmail, ok = claims["sub"].(string); ok && len(userEmail) > 0 {
 					isAuthenticated = true
 				}
-			} else if exp, ok := claims["exp"].(float64); ok {
+			} /*else if exp, ok := claims["exp"].(float64); ok {
 				// check if it's less than a week old
 				if time.Now().Unix()-int64(exp) < time.Now().Add(time.Hour * 24 * 7).Unix() {
 					if projectNamespace, ok = claims["pro"].(string); ok && len(projectNamespace) > 0 {
@@ -81,16 +78,16 @@ func (ctx Context) Authenticate(requireProjectAccess bool) (bool, Context) {
 						isExpired = true
 					}
 				}
-			}
+			}*/
 		}
 	}
 
-	ctx.IsAuthenticated = isAuthenticated && (hasProjectNamespace || !requireProjectAccess) && !isExpired
+	ctx.IsAuthenticated = isAuthenticated && !isExpired
 	if ctx.IsAuthenticated {
 		ctx.HasProjectAccess = hasProjectNamespace
 		ctx.User = userEmail
 		ctx.Project = projectNamespace
-		ctx.userKey = datastore.NewKey(ctx, "User", userEmail, 0, nil)
+		ctx.UserKey = datastore.NewKey(ctx, "User", userEmail, 0, nil)
 	} else {
 		ctx.HasProjectAccess = false
 		ctx.User = ""
@@ -191,8 +188,8 @@ func (ctx *Context) PrintAuth(w http.ResponseWriter, user *user.User, token *Tok
 	w.Header().Set("Content-Type", "application/json")
 
 	var out = AuthResult{
-		User:   user,
-		Token:  token,
+		User:  user,
+		Token: token,
 	}
 
 	json.NewEncoder(w).Encode(out)

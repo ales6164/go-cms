@@ -18,10 +18,10 @@ func (a *App) AuthLoginHandler() http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := NewContext(r).WithBody()
+		ctx := NewContext(r)
 
 		var input Input
-		err := json.Unmarshal(ctx.body, &input)
+		err := json.Unmarshal(ctx.Body(), &input)
 		if err != nil {
 			ctx.PrintError(w, err)
 			return
@@ -87,10 +87,10 @@ func (a *App) AuthRegistrationHandler() http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := NewContext(r).WithBody()
+		ctx := NewContext(r)
 
 		var input Input
-		err := json.Unmarshal(ctx.body, &input)
+		err := json.Unmarshal(ctx.Body(), &input)
 		if err != nil {
 			ctx.PrintError(w, err)
 			return
@@ -210,7 +210,7 @@ func (a *App) CreateProjectHandler() http.HandlerFunc {
 		Namespace string `valid:"length(4|32),isSlug,required" json:"namespace"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		authenticated, ctx := NewContext(r).WithBody().Authenticate(false)
+		authenticated, ctx := NewContext(r).Authenticate()
 
 		if !authenticated {
 			ctx.PrintError(w, ErrUnathorized)
@@ -218,7 +218,7 @@ func (a *App) CreateProjectHandler() http.HandlerFunc {
 		}
 
 		input := new(Input)
-		err := json.Unmarshal(ctx.body, input)
+		err := json.Unmarshal(ctx.Body(), input)
 		if err != nil {
 			ctx.PrintError(w, err)
 			return

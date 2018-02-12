@@ -11,7 +11,7 @@ import (
 
 type Kind struct {
 	Name   string  `json:"name"` // Only a-Z characters allowed
-	Fields []Field `json:"field"`
+	Fields []Field `json:"fields"`
 
 	subKinds []*Kind // kinds managed by fields
 	fields   map[string]Field
@@ -37,6 +37,7 @@ func New(name string, fields ...Field) *Kind {
 	}
 	k := new(Kind)
 	k.Name = name
+	k.Fields = fields
 	for _, f := range fields {
 		if len(f.GetName()) == 0 {
 			panic(errors.New("field name can't be empty"))

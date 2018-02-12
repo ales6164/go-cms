@@ -49,7 +49,6 @@ func (x *Slug) GetNested() bool {
 	return x.Nested
 }
 
-
 func (x *Slug) Parse(value interface{}) ([]datastore.Property, error) {
 	var list []datastore.Property
 	var v map[string]interface{}
