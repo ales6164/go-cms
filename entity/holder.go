@@ -3,13 +3,14 @@ package entity
 import (
 	"time"
 	"google.golang.org/appengine/datastore"
-	"github.com/ales6164/go-cms"
 	"encoding/json"
+	"github.com/ales6164/go-cms/instance"
+	"github.com/fatih/structs"
 )
 
 type Holder struct {
 	entity  *Entity
-	context api.Context
+	context instance.Context
 
 	key        *datastore.Key
 	Data       *Data
@@ -24,18 +25,16 @@ type Data struct {
 type Meta struct {
 	CreatedAt time.Time      `json:"createdAt" datastore:"createdAt"`
 	CreatedBy *datastore.Key `json:"createdBy" datastore:"createdBy"`
-	Version   int64          `json:"version" datastore:"version"` // 0, 1, 2, 3 ...
-	Status    string         `json:"status" datastore:"status"`   // draft, pendingApproval, published, removed
-	Label     string         `json:"label" datastore:"label"`     // don't know yet
+	Label     string         `json:"label" datastore:"label"` // draft, pending, published, removed
 }
 
-type status string
+type label string
 
 const (
-	StatusDraft     status = "draft"
-	StatusPending   status = "pending"
-	StatusPublished status = "published"
-	StatusRemoved   status = "removed"
+	Draft     label = "draft"
+	Pending   label = "pending"
+	Published label = "published"
+	Removed   label = "removed"
 )
 
 func (h *Holder) Parse(body []byte) error {
@@ -43,12 +42,28 @@ func (h *Holder) Parse(body []byte) error {
 	return json.Unmarshal(body, &h.Data.Value)
 }
 
-
 func (h *Holder) Load(p []datastore.Property) error {
 	h.properties = p
 	return datastore.LoadStruct(h.Data, p)
 }
 
 func (h *Holder) Save() ([]datastore.Property, error) {
-	return datastore.SaveStruct(h.Data)
+	/*var p []datastore.Property
+
+	s := structs.New(&h.Data.Value)
+	m := s.Map()
+	for key, val := range m {
+		field := s.Field(key)
+		name := field.Tag("datastore")
+		var is
+		if len(name) == 0 {
+			name = field.Name()
+		} else {
+			split :=
+		}
+	}
+
+
+*/
+	return datastore.SaveStruct(&h.Data.Value)
 }

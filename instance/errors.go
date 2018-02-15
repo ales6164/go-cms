@@ -1,4 +1,4 @@
-package api
+package instance
 
 import "errors"
 
@@ -29,6 +29,6 @@ var (
 	ErrUserAlreadyExists     = NewError("user with that email already exists", 107)
 	ErrInvalidFormInput      = NewError("invalid form input", 108)
 	ErrProjectAlreadyExists  = NewError("project already exists", 109)
-
 	ErrUnathorized = errors.New("unathorized")
+
 )

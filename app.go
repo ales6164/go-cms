@@ -8,17 +8,14 @@ import (
 	"github.com/ales6164/go-cms/middleware"
 	"github.com/asaskevich/govalidator"
 	"github.com/ales6164/go-cms/kind"
-	"errors"
 	"strings"
-	"github.com/ales6164/go-cms/entity"
+	"github.com/ales6164/go-cms/instance"
 )
 
 type App struct {
 	PrivateKey []byte
 	Kinds      []*kind.Kind
 	kinds      map[string]*kind.Kind
-
-	entities []*entity.Entity
 }
 
 func NewApp() *App {
@@ -33,7 +30,7 @@ func NewApp() *App {
 	return a
 }
 
-func (a *App) Import(class interface{}) {
+/*func (a *App) Import(class interface{}) {
 	classType := getType(class)
 	name := classType.Name()
 	if len(name) < 3 {
@@ -47,8 +44,13 @@ func (a *App) Import(class interface{}) {
 	}
 
 	a.entities = append(a.entities, &entity.Entity{Name: name, Type: classType})
-	/*a.Kinds = append(a.Kinds, class)
-	a.kinds[class.Name] = class*/
+	*//*a.Kinds = append(a.Kinds, class)
+	a.kinds[class.Name] = class*//*
+}*/
+
+func (a *App) Import(kind *kind.Kind) {
+	a.Kinds = append(a.Kinds, kind)
+	a.kinds[kind.Name] = kind
 }
 
 /*
@@ -75,11 +77,12 @@ func (a *App) Serve(rootPath string) {
 	r.Handle("/auth/{project}", authMiddleware.Handler(a.AuthRenewProjectAccessTokenHandler())).Methods(http.MethodPost)
 
 	// API
-	for _, ent := range a.entities {
+	for _, ent := range a.kinds {
 		name := strings.ToLower(ent.Name)
-		r.Handle("/"+name, authMiddleware.Handler(a.KindGetHandler(ent))).Methods(http.MethodGet)
+		r.Handle("/"+name, authMiddleware.Handler(a.GetHandler(ent))).Methods(http.MethodGet)
 
-		r.Handle("/"+name, authMiddleware.Handler(a.KindSaveDraftHandler(ent))).Methods(http.MethodPost) // ADD
+		//r.Handle("/"+name+"/draft", authMiddleware.Handler(a.AddDraftHandler(ent))).Methods(http.MethodPost) // ADD
+		r.Handle("/"+name, authMiddleware.Handler(a.AddHandler(ent))).Methods(http.MethodPost)               // ADD
 		//r.Handle("/"+name+"/{id}", authMiddleware.Handler(a.KindGetHandler(e))).Methods(http.MethodGet)       // GET
 		//r.Handle("/{project}/api/"+name+"/{id}", authMiddleware.Handler(a.KindUpdateHandler(e))).Methods(http.MethodPut)    // UPDATE
 		//r.Handle("/{project}/api/"+name+"/{id}", authMiddleware.Handler(a.KindDeleteHandler(e))).Methods(http.MethodDelete) // DELETE
@@ -88,12 +91,11 @@ func (a *App) Serve(rootPath string) {
 	http.Handle(rootPath, &Server{r})
 }
 
-func (a *App) SignToken(token *jwt.Token) (*Token, error) {
+func (a *App) SignToken(token *jwt.Token) (*instance.Token, error) {
 	signedToken, err := token.SignedString(a.PrivateKey)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Token{Id: signedToken, ExpiresAt: token.Claims.(jwt.MapClaims)["exp"].(int64)}, nil
+	return &instance.Token{Id: signedToken, ExpiresAt: token.Claims.(jwt.MapClaims)["exp"].(int64)}, nil
 }
-

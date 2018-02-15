@@ -11,27 +11,23 @@ import (
 
 type Kind struct {
 	Name   string  `json:"name"` // Only a-Z characters allowed
-	Fields []Field `json:"fields"`
+	Fields []*Field `json:"fields"`
 
 	subKinds []*Kind // kinds managed by fields
-	fields   map[string]Field
+	fields   map[string]*Field
 }
 
-type Field interface {
-	GetName() string
-	GetRequired() bool
-	GetMultiple() bool
-	GetNoIndex() bool
-	GetNested() bool
+type Field struct {
+	Name       string
+	IsRequired bool
+	Multiple   bool
+	NoIndex    bool
 
-	RegisterSubKind() *Kind
-
-	Init() error
-	Parse(value interface{}) ([]datastore.Property, error)
-	Output(ctx context.Context, value interface{}) interface{}
+	isNested bool
+	Worker
 }
 
-func New(name string, fields ...Field) *Kind {
+func New(name string, fields []*Field) *Kind {
 	if !govalidator.IsAlpha(name) {
 		panic(errors.New("kind name must contain a-zA-Z characters only"))
 	}
@@ -39,33 +35,25 @@ func New(name string, fields ...Field) *Kind {
 	k.Name = name
 	k.Fields = fields
 	for _, f := range fields {
-		if len(f.GetName()) == 0 {
+		if len(f.Name) == 0 {
 			panic(errors.New("field name can't be empty"))
 		}
-		if f.GetName() == "meta" || f.GetName() == "id" {
-			panic(errors.New("field name '" + f.GetName() + "' already exists"))
+		if f.Name == "meta" || f.Name == "id" {
+			panic(errors.New("field name '" + f.Name + "' already exists"))
 		}
-		if f.GetName()[:1] == "_" {
+		if f.Name[:1] == "_" {
 			panic(errors.New("field name can't begin with an underscore"))
 		}
-		if split := strings.Split(f.GetName(), "."); len(split) > 1 {
+		if split := strings.Split(f.Name, "."); len(split) > 1 {
 			if split[0] == "meta" || split[0] == "id" {
-				panic(errors.New("field name '" + f.GetName() + "' already exists"))
+				panic(errors.New("field name '" + f.Name + "' already exists"))
 			}
-			if f.GetNested() == false {
-				panic(errors.New("field name '" + f.GetName() + "' contains dots but is not nested"))
-			}
-		}
-		if err := f.Init(); err != nil {
-			panic(err)
-		}
-		if subKind := f.RegisterSubKind(); subKind != nil {
-			k.subKinds = append(k.subKinds, subKind)
+			f.isNested = true
 		}
 		if k.fields == nil {
-			k.fields = map[string]Field{}
+			k.fields = map[string]*Field{}
 		}
-		k.fields[f.GetName()] = f
+		k.fields[f.Name] = f
 	}
 	return k
 }
@@ -75,11 +63,10 @@ func (k *Kind) NewHolder(ctx context.Context, user *datastore.Key) *Holder {
 		Kind:              k,
 		context:           ctx,
 		user:              user,
-		preparedInputData: map[Field][]datastore.Property{},
+		preparedInputData: map[*Field][]datastore.Property{},
 		loadedStoredData:  map[string][]datastore.Property{},
 	}
 }
-
 
 func (k *Kind) SubKinds() []*Kind {
 	return k.subKinds

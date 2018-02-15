@@ -9,6 +9,7 @@ import (
 	"golang.org/x/net/context"
 	"github.com/ales6164/go-cms/user"
 	"github.com/ales6164/go-cms/project"
+	"github.com/ales6164/go-cms/instance"
 )
 
 func (a *App) AuthLoginHandler() http.HandlerFunc {
@@ -18,7 +19,7 @@ func (a *App) AuthLoginHandler() http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := NewContext(r)
+		ctx := instance.NewContext(r)
 
 		var input Input
 		err := json.Unmarshal(ctx.Body(), &input)
@@ -31,11 +32,11 @@ func (a *App) AuthLoginHandler() http.HandlerFunc {
 
 		// verify input
 		if !govalidator.IsEmail(input.Email) || len(input.Email) < 6 || len(input.Email) > 64 {
-			ctx.PrintError(w, ErrInvalidEmail)
+			ctx.PrintError(w, instance.ErrInvalidEmail)
 			return
 		}
 		if len(input.Password) < 6 || len(input.Password) > 128 {
-			ctx.PrintError(w, ErrPasswordLength)
+			ctx.PrintError(w, instance.ErrPasswordLength)
 			return
 		}
 
@@ -45,7 +46,7 @@ func (a *App) AuthLoginHandler() http.HandlerFunc {
 		err = datastore.Get(ctx, userKey, user)
 		if err != nil {
 			if err == datastore.ErrNoSuchEntity {
-				ctx.PrintError(w, ErrUserDoesNotExist)
+				ctx.PrintError(w, instance.ErrUserDoesNotExist)
 				return
 			}
 			ctx.PrintError(w, err)
@@ -55,7 +56,7 @@ func (a *App) AuthLoginHandler() http.HandlerFunc {
 		// decrypt hash
 		err = decrypt(user.Hash, []byte(input.Password))
 		if err != nil {
-			ctx.PrintError(w, ErrUserPasswordIncorrect)
+			ctx.PrintError(w, instance.ErrUserPasswordIncorrect)
 			// todo: log and report
 			return
 		}
@@ -64,7 +65,7 @@ func (a *App) AuthLoginHandler() http.HandlerFunc {
 		user.Projects, _ = project.GetUserProjects(ctx, userKey)
 
 		// create a token
-		token := newToken(user.Email, "")
+		token := instance.NewToken(user.Email, "")
 
 		// sign the new token
 		signedToken, err := a.SignToken(token)
@@ -87,7 +88,7 @@ func (a *App) AuthRegistrationHandler() http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := NewContext(r)
+		ctx := instance.NewContext(r)
 
 		var input Input
 		err := json.Unmarshal(ctx.Body(), &input)
@@ -100,15 +101,15 @@ func (a *App) AuthRegistrationHandler() http.HandlerFunc {
 
 		// verify input
 		if !govalidator.IsEmail(input.Email) || len(input.Email) < 6 || len(input.Email) > 64 {
-			ctx.PrintError(w, ErrInvalidEmail)
+			ctx.PrintError(w, instance.ErrInvalidEmail)
 			return
 		}
 		if len(input.Password) < 6 || len(input.Password) > 128 {
-			ctx.PrintError(w, ErrPasswordLength)
+			ctx.PrintError(w, instance.ErrPasswordLength)
 			return
 		}
 		if len(input.Photo) > 0 && !govalidator.IsURL(input.Photo) {
-			ctx.PrintError(w, ErrPhotoInvalidFormat)
+			ctx.PrintError(w, instance.ErrPhotoInvalidFormat)
 			return
 		}
 
@@ -139,7 +140,7 @@ func (a *App) AuthRegistrationHandler() http.HandlerFunc {
 				}
 				return err
 			}
-			return ErrUserAlreadyExists
+			return instance.ErrUserAlreadyExists
 		}, nil)
 		if err != nil {
 			ctx.PrintError(w, err)
@@ -147,7 +148,7 @@ func (a *App) AuthRegistrationHandler() http.HandlerFunc {
 		}
 
 		// create a token
-		token := newToken(user.Email, "")
+		token := instance.NewToken(user.Email, "")
 
 		// sign the new token
 		signedToken, err := a.SignToken(token)
@@ -163,10 +164,10 @@ func (a *App) AuthRegistrationHandler() http.HandlerFunc {
 // Renews token and fetches user info
 func (a *App) AuthRenewProjectAccessTokenHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, renewedToken := NewContext(r).renew()
+		ctx, renewedToken := instance.NewContext(r).Renew()
 
 		if renewedToken == nil {
-			ctx.PrintError(w, ErrUnathorized)
+			ctx.PrintError(w, instance.ErrUnathorized)
 			return
 		}
 
@@ -175,7 +176,7 @@ func (a *App) AuthRenewProjectAccessTokenHandler() http.HandlerFunc {
 		user := new(user.User)
 		err := datastore.Get(ctx, userKey, user)
 		if err != nil {
-			ctx.PrintError(w, ErrUnathorized)
+			ctx.PrintError(w, instance.ErrUnathorized)
 			return
 		}
 
@@ -185,7 +186,7 @@ func (a *App) AuthRenewProjectAccessTokenHandler() http.HandlerFunc {
 			proAccess := new(project.ProjectAccess)
 			err := datastore.Get(ctx, proAccessKey, proAccess)
 			if err != nil {
-				ctx.PrintError(w, ErrUnathorized)
+				ctx.PrintError(w, instance.ErrUnathorized)
 				return
 			}
 		}
@@ -210,10 +211,10 @@ func (a *App) CreateProjectHandler() http.HandlerFunc {
 		Namespace string `valid:"length(4|32),isSlug,required" json:"namespace"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		authenticated, ctx := NewContext(r).Authenticate()
+		authenticated, ctx := instance.NewContext(r).Authenticate()
 
 		if !authenticated {
-			ctx.PrintError(w, ErrUnathorized)
+			ctx.PrintError(w, instance.ErrUnathorized)
 			return
 		}
 
@@ -231,7 +232,7 @@ func (a *App) CreateProjectHandler() http.HandlerFunc {
 			return
 		}
 		if !ok {
-			ctx.PrintError(w, ErrInvalidFormInput)
+			ctx.PrintError(w, instance.ErrInvalidFormInput)
 			return
 		}
 
@@ -239,7 +240,7 @@ func (a *App) CreateProjectHandler() http.HandlerFunc {
 		user := new(user.User)
 		err = datastore.Get(ctx, userKey, user)
 		if err != nil {
-			ctx.PrintError(w, ErrUnathorized)
+			ctx.PrintError(w, instance.ErrUnathorized)
 			return
 		}
 
@@ -268,12 +269,12 @@ func (a *App) CreateProjectHandler() http.HandlerFunc {
 				}
 				return err
 			}
-			return ErrProjectAlreadyExists
+			return instance.ErrProjectAlreadyExists
 		}, &datastore.TransactionOptions{
 			XG: true,
 		})
 
-		token := newToken(user.Email, pro.Namespace)
+		token := instance.NewToken(user.Email, pro.Namespace)
 
 		// get user projects
 		user.Projects, _ = project.GetUserProjects(ctx, userKey)

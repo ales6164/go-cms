@@ -270,7 +270,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	m.logf("JWT: %v", parsedToken)
 
 	// If we get here, everything worked and we can set the
-	// auth property in context.
+	// auth property in instance.
 	context.Set(r, m.Options.UserProperty, parsedToken)
 
 	return nil

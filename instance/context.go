@@ -1,4 +1,4 @@
-package context
+package instance
 
 import (
 	"golang.org/x/net/context"
@@ -98,7 +98,7 @@ func (ctx Context) Authenticate() (bool, Context) {
 }
 
 // Authenticates user; if token is expired, returns a renewed unsigned *jwt.Token
-func (ctx Context) renew() (Context, *jwt.Token) {
+func (ctx Context) Renew() (Context, *jwt.Token) {
 	var isAuthenticated, hasProjectNamespace bool
 	var userEmail, projectNamespace string
 	var unsignedToken *jwt.Token
@@ -145,13 +145,13 @@ func (ctx Context) renew() (Context, *jwt.Token) {
 
 	// issue a new token
 	if isAuthenticated {
-		unsignedToken = newToken(ctx.User, ctx.Project)
+		unsignedToken = NewToken(ctx.User, ctx.Project)
 	}
 
 	return ctx, unsignedToken
 }
 
-func newToken(userEmail string, projectNamespace string) *jwt.Token {
+func NewToken(userEmail string, projectNamespace string) *jwt.Token {
 	var exp = time.Now().Add(time.Hour * 72).Unix()
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"aud": "api",

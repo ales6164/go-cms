@@ -10,8 +10,9 @@ FETCH
  */
 
 // undefined
-func (e *Entity) Get(h *Holder) {
-
+func (e *Entity) Get(h *Holder, key *datastore.Key) error {
+	h.key = key
+	return datastore.Get(h.context, key, h)
 }
 
 // undefined
@@ -23,17 +24,16 @@ func (e *Entity) Query(h *Holder) {
 ADD; EDIT; DELETE; PROMOTE
  */
 
-func (e *Entity) Add(h *Holder, s status) (*datastore.Key, error) {
+func (e *Entity) Add(h *Holder, l label) (*datastore.Key, error) {
 	h.key = datastore.NewIncompleteKey(h.context, e.Name, nil)
 
 	h.Data.Meta = Meta{
 		CreatedAt: time.Now(),
 		CreatedBy: h.context.UserKey,
-		Version:   0,
-		Status:    string(s),
+		Label:    string(l),
 	}
 
-	return datastore.Put(h.context, h.key, h.Data)
+	return datastore.Put(h.context, h.key, h.Data.Value)
 }
 
 func (e *Entity) Update(h *Holder, key *datastore.Key) {
@@ -45,7 +45,7 @@ func (e *Entity) Delete(h *Holder, key *datastore.Key) {
 
 }
 
-func (e *Entity) Promote(h *Holder, key *datastore.Key, newStatus status) {
+func (e *Entity) Promote(h *Holder, key *datastore.Key, newLabel label) {
 	h.key = key
 
 }

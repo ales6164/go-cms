@@ -1,57 +1,50 @@
 package api
 
 import (
-	"github.com/ales6164/go-cms/entity"
-	"github.com/asaskevich/govalidator"
 	"net/http"
+	"github.com/ales6164/go-cms/instance"
+	"github.com/gorilla/mux"
+	"google.golang.org/appengine/datastore"
+	"github.com/ales6164/go-cms/kind"
 )
 
-func (a *App) KindSaveDraftHandler(e *entity.Entity) http.HandlerFunc {
+func (a *App) GetHandler(e *kind.Kind) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := NewContext(r)
+		ctx := instance.NewContext(r)
 
-		h, err := e.NewFromBody(ctx)
-		if err != nil {
-			ctx.PrintError(w, err)
-			return
-		}
-
-		res, err := govalidator.ValidateStruct(&h.Data)
-		if err != nil || !res {
-			ctx.PrintError(w, err)
-			return
-		}
-
-		_, err = e.Add(h, entity.StatusDraft)
-		if err != nil {
-			ctx.PrintError(w, err)
-			return
-		}
-
-		ctx.PrintResult(w, h.Data)
-	}
-}
-
-func (a *App) KindGetHandler(e *entity.Entity) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		//ctx := NewContext(r)
-
-		/*vars := mux.Vars(r)
+		vars := mux.Vars(r)
 		id := vars["id"]
 
 		key, err := datastore.DecodeKey(id)
 		if err != nil {
 			ctx.PrintError(w, err)
 			return
-		}*/
+		}
 
-		/*h, err := k.Get(ctx, key)
+		h, err := e.Get(ctx, key)
 		if err != nil {
 			ctx.PrintError(w, err)
 			return
-		}*/
+		}
 
-		//ctx.PrintResult(w, k)
+		ctx.PrintResult(w, h.Output())
+	}
+}
+
+func (a *App) AddHandler(e *kind.Kind) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := instance.NewContext(r)
+
+		h := e.NewHolder(ctx, ctx.UserKey)
+		h.ParseInput(ctx.Body())
+
+		err := h.Add()
+		if err != nil {
+			ctx.PrintError(w, err)
+			return
+		}
+
+		ctx.PrintResult(w, h.Output())
 	}
 }
 

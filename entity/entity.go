@@ -3,7 +3,7 @@ package entity
 import (
 	"reflect"
 	"google.golang.org/appengine/datastore"
-	"context"
+	"github.com/ales6164/go-cms/instance"
 )
 
 /*type PropertyLoadSaver interface {
@@ -16,7 +16,7 @@ type Entity struct {
 	Type reflect.Type
 }
 
-func (e *Entity) New(ctx context.Context) *Holder {
+func (e *Entity) New(ctx instance.Context) *Holder {
 	h := &Holder{
 		entity:  e,
 		context: ctx,
@@ -30,7 +30,7 @@ func (e *Entity) New(ctx context.Context) *Holder {
 	return h
 }
 
-func (e *Entity) NewFromBody(ctx context.Context) (*Holder, error) {
+func (e *Entity) NewFromBody(ctx instance.Context) (*Holder, error) {
 	h := e.New(ctx)
 	err := h.Parse(ctx.Body())
 	return h, err

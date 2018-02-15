@@ -15,7 +15,7 @@ type Holder struct {
 	context context.Context
 	key     *datastore.Key
 
-	preparedInputData   map[Field][]datastore.Property // user input
+	preparedInputData   map[*Field][]datastore.Property // user input
 	hasLoadedStoredData bool
 	loadedStoredData    map[string][]datastore.Property // data already stored in datastore - if exists
 	datastoreData       []datastore.Property            // list of properties stored in datastore - refreshed on Load or Save
@@ -33,7 +33,7 @@ func (h *Holder) ParseInput(body []byte) error {
 	for _, f := range h.Kind.Fields {
 
 		// check for input
-		if value, ok := m[f.GetName()]; ok {
+		if value, ok := m[f.Name]; ok {
 
 			props, err := f.Parse(value)
 			if err != nil {
@@ -42,7 +42,7 @@ func (h *Holder) ParseInput(body []byte) error {
 
 			h.preparedInputData[f] = props
 		} else {
-			names := strings.Split(f.GetName(), ".")
+			names := strings.Split(f.Name, ".")
 			if _, ok := m[names[0]]; ok {
 
 				var endValue = m[names[0]]
@@ -65,7 +65,7 @@ func (h *Holder) ParseInput(body []byte) error {
 }
 
 // appends value
-func (h *Holder) appendValue(dst interface{}, field Field, value interface{}, multiple bool) interface{} {
+func (h *Holder) appendValue(dst interface{}, field *Field, value interface{}, multiple bool) interface{} {
 	value = field.Output(h.context, value)
 	if multiple {
 		if dst == nil {
@@ -80,7 +80,7 @@ func (h *Holder) appendValue(dst interface{}, field Field, value interface{}, mu
 }
 
 // appends property to dst; it can return a flat object or structured
-func (h *Holder) appendPropertyValue(dst map[string]interface{}, prop datastore.Property, field Field) map[string]interface{} {
+func (h *Holder) appendPropertyValue(dst map[string]interface{}, prop datastore.Property, field *Field) map[string]interface{} {
 
 	names := strings.Split(prop.Name, ".")
 	if len(names) > 1 {
@@ -127,7 +127,7 @@ func (h *Holder) Save() ([]datastore.Property, error) {
 	for _, f := range h.Kind.Fields {
 
 		var inputProperties = h.preparedInputData[f]
-		var loadedProperties = h.loadedStoredData[f.GetName()]
+		var loadedProperties = h.loadedStoredData[f.Name]
 
 		var toSaveProps []datastore.Property
 
@@ -135,8 +135,8 @@ func (h *Holder) Save() ([]datastore.Property, error) {
 			toSaveProps = append(toSaveProps, inputProperties...)
 		} else if len(loadedProperties) != 0 {
 			toSaveProps = append(toSaveProps, loadedProperties...)
-		} else if f.GetRequired() {
-			return nil, errors.New("field " + f.GetName() + " required")
+		} else if f.IsRequired {
+			return nil, errors.New("field " + f.Name + " required")
 		}
 
 		h.datastoreData = append(h.datastoreData, toSaveProps...)
