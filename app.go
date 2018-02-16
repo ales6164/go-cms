@@ -65,16 +65,9 @@ func (a *App) Serve(rootPath string) {
 
 	//r.HandleFunc("/api", a.GetKindDefinitions()).Methods(http.MethodGet)
 
-	// Create project
-	r.Handle("/project", authMiddleware.Handler(a.CreateProjectHandler())).Methods(http.MethodPost)
-
 	// User authorization
 	r.HandleFunc("/auth/login", a.AuthLoginHandler()).Methods(http.MethodPost)
 	r.HandleFunc("/auth/register", a.AuthRegistrationHandler()).Methods(http.MethodPost)
-
-	// Project/User re-authorization
-	r.Handle("/auth", authMiddleware.Handler(a.AuthRenewProjectAccessTokenHandler())).Methods(http.MethodPost)
-	r.Handle("/auth/{project}", authMiddleware.Handler(a.AuthRenewProjectAccessTokenHandler())).Methods(http.MethodPost)
 
 	// API
 	for _, ent := range a.kinds {
